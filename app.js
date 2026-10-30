@@ -494,6 +494,38 @@ function setView(view){
 
 function openModal(id){ document.getElementById(id).classList.add("open"); }
 function closeModal(id){ document.getElementById(id).classList.remove("open"); }
+// Draft restore (2026-10-30, intermittent modal-close bug): if the Quick
+// Add form ever closes unexpectedly (accidental backdrop tap, navigation,
+// reload), the typed Who/Name/Company/Website/Remark must not be lost.
+// The draft is saved on every input, restored only when opening a NEW
+// lead, and cleared on Save or on an intentional Cancel.
+const DRAFT_KEY = "leadcrm_quick_draft_v1";
+function saveQuickDraft(){
+  if(editingId) return;
+  try{
+    const d = {};
+    ["f_who","f_name","f_company","f_website","f_notes","f_requirement"].forEach(id => { const el = document.getElementById(id); if(el) d[id] = el.value; });
+    d.quickChannel = quickChannel; d.quickStatus = quickStatus;
+    const outEl = document.getElementById("f_outcome"); if(outEl) d.f_outcome = outEl.value;
+    if(d.f_who || d.f_name || d.f_notes) localStorage.setItem(DRAFT_KEY, JSON.stringify(d));
+  }catch(e){}
+}
+function clearQuickDraft(){ try{ localStorage.removeItem(DRAFT_KEY); }catch(e){} }
+function restoreQuickDraft(){
+  try{
+    const raw = localStorage.getItem(DRAFT_KEY); if(!raw) return false;
+    const d = JSON.parse(raw);
+    Object.keys(d).forEach(id => { const el = document.getElementById(id); if(el && d[id] !== undefined) el.value = d[id]; });
+    if(d.quickChannel) selectChannel(d.quickChannel);
+    if(d.quickStatus) selectQuickStatus(d.quickStatus);
+    if(d.f_name) nameManuallyEdited = true;
+    if(d.f_company) companyManuallyEdited = true;
+    if(d.f_website) websiteManuallyEdited = true;
+    updateWhoParsed();
+    return true;
+  }catch(e){ return false; }
+}
+function cancelLeadForm(){ clearQuickDraft(); closeModal("leadModal"); }
 function resetQuickForm(){
   quickChannel = "Email"; quickStatus = "Contacted";
   nameManuallyEdited = false; companyManuallyEdited = false; websiteManuallyEdited = false;
@@ -509,7 +541,13 @@ function openAddLead(){
   editingId = null;
   document.getElementById("leadFormTitle").textContent = "Quick add lead";
   resetQuickForm();
+  const hadDraft = restoreQuickDraft();
   document.getElementById("quickSaved").classList.add("hidden");
+  if(hadDraft){
+    const el = document.getElementById("quickSaved");
+    el.textContent = "Restored your unsaved draft — continue below, or Cancel to discard it.";
+    el.classList.remove("hidden");
+  }
   document.getElementById("deleteLeadBtn").classList.add("hidden");
   updateAddedToday();
   openModal("leadModal");
@@ -600,7 +638,7 @@ async function submitLeadForm(e){
     const savedEl = document.getElementById("quickSaved");
     savedEl.textContent = "Already in the system — updated " + (dup.name || dup.email || dup.phone) + " instead of creating a duplicate.";
     savedEl.classList.remove("hidden");
-    resetQuickForm(); document.getElementById("quickSaved").classList.remove("hidden");
+    clearQuickDraft(); resetQuickForm(); document.getElementById("quickSaved").classList.remove("hidden");
     document.getElementById("quickSaved").textContent = "Already in the system — updated " + (dup.name || dup.email || dup.phone) + " instead of creating a duplicate.";
     updateAddedToday(); document.getElementById("f_who").focus();
     return;
@@ -621,7 +659,7 @@ async function submitLeadForm(e){
   addedTodayCount++;
   // Stay in the modal for the next lead: clear, show Saved, focus Who.
   const savedName = name;
-  resetQuickForm();
+  clearQuickDraft(); resetQuickForm();
   const savedEl = document.getElementById("quickSaved");
   savedEl.textContent = "Saved: " + savedName + " — add another below.";
   savedEl.classList.remove("hidden");
@@ -720,7 +758,15 @@ async function init(){
     else { const btn = document.querySelector('#leadForm button[type="submit"]'); if(btn) btn.focus(); }
   });
   document.getElementById("handoffForm").addEventListener("submit", submitHandoff);
-  document.querySelectorAll(".modal-backdrop").forEach(b => b.addEventListener("click", e => { if(e.target === b) b.classList.remove("open"); }));
+  // Bug fix 2026-10-30 (intermittent manual-name close): clicking anywhere
+  // inside the white modal must NEVER close it, and clicking the dark
+  // backdrop must NOT close the Quick Add form either — an accidental
+  // backdrop tap (especially on mobile, where the modal scrolls) was
+  // losing the typed name and dropping the user back to Dashboard.
+  // Close only via Cancel, Close, Save, or Delete buttons.
+  document.querySelectorAll(".modal").forEach(m => m.addEventListener("click", e => e.stopPropagation()));
+  document.getElementById("leadForm").addEventListener("input", saveQuickDraft);
+  document.getElementById("leadForm").addEventListener("change", saveQuickDraft);
 
   const pill = document.getElementById("modePill");
   if(hasSupabase && window.supabase){
