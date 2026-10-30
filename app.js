@@ -56,6 +56,142 @@ function dueLabel(lead){
   return lead.follow_up_date;
 }
 
+/* Quick Add helpers — no schema or column changes. Notes = remark.
+   Done is displayed for the stored Won stage; Lost is stored as Lost. */
+let quickChannel = "Email";
+let quickStatus = "Contacted";
+let addedTodayCount = 0;
+const REMARK_CHIPS = ["Interested","Asked for pricing","Call back later","Meeting booked","No reply yet","Not interested"];
+function displayStage(stage){ return stage === "Won" ? "Done" : stage; }
+function quickStatusToStage(s){ return s === "Done" ? "Won" : s; }
+function stageToQuickStatus(s){ return s === "Won" ? "Done" : (["New","Contacted","Replied","Lost"].includes(s) ? s : "Contacted"); }
+function digitsOnly(v){ return String(v || "").replace(/\D/g, ""); }
+function titleCase(s){ return String(s || "").split(/[\s._-]+/).filter(Boolean).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" "); }
+function parseWho(raw){
+  const text = String(raw || "").trim();
+  if(!text) return { name:"", company:"", email:"", phone:"" };
+  const emailMatch = text.match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/);
+  const email = emailMatch ? emailMatch[0] : "";
+  const phoneMatch = text.match(/\+?\d[\d\s\-()]{6,}\d/);
+  let phone = "";
+  if(!email && phoneMatch && digitsOnly(text).length >= 7 && digitsOnly(text).length >= text.replace(/[\s\-()+]/g,"").length * 0.7) phone = phoneMatch[0].trim();
+  else if(phoneMatch && email) phone = phoneMatch[0].trim();
+  let rest = text;
+  if(email) rest = rest.replace(email, " ");
+  if(phone) rest = rest.replace(phone, " ");
+  rest = rest.replace(/[,;|]+/g, " ").replace(/\s+/g, " ").trim();
+  let name = "", company = "";
+  if(rest){
+    const atParts = rest.split(/\s+at\s+/i);
+    if(atParts.length === 2){ name = atParts[0].trim(); company = atParts[1].trim(); }
+    else if(/inc\.?|ltd\.?|llc|company|co\./i.test(rest) && rest.split(" ").length <= 4){ company = rest; }
+    else name = rest;
+  }
+  if(email && !company){
+    const domain = email.split("@")[1] || "";
+    const first = domain.split(".")[0] || "";
+    if(!["gmail","yahoo","outlook","hotmail","icloud","protonmail","example"].includes(first.toLowerCase())) company = titleCase(first);
+  }
+  if(email && !name){
+    const local = email.split("@")[0] || "";
+    name = titleCase(local);
+  }
+  if(!name && company) name = company;
+  return { name, company, email, phone };
+}
+function updateWhoParsed(){
+  const whoEl = document.getElementById("f_who"); if(!whoEl) return;
+  const p = parseWho(whoEl.value);
+  const nameEl = document.getElementById("f_name"), compEl = document.getElementById("f_company");
+  if(p.name && nameEl && !nameEl.value) nameEl.value = p.name;
+  if(p.company && compEl && !compEl.value) compEl.value = p.company;
+  if(p.email) document.getElementById("f_email").value = p.email;
+  if(p.phone) document.getElementById("f_phone").value = p.phone;
+  const out = document.getElementById("whoParsed");
+  if(out) out.textContent = (p.name || p.email || p.phone) ? [p.name, p.company, p.email, p.phone].filter(Boolean).join(" · ") : "";
+}
+function selectChannel(ch){
+  quickChannel = ch;
+  const src = document.getElementById("f_source"); if(src) src.value = ch;
+  document.querySelectorAll(".channel-btn").forEach(b => b.classList.toggle("active", b.dataset.channel === ch));
+}
+function selectQuickStatus(s){
+  quickStatus = s;
+  const st = document.getElementById("f_stage"); if(st) st.value = quickStatusToStage(s);
+  document.querySelectorAll(".status-btn").forEach(b => b.classList.toggle("active", b.dataset.status === s));
+}
+function addRemarkChip(text){
+  const el = document.getElementById("f_notes"); if(!el) return;
+  const cur = el.value.trim();
+  if(!cur) el.value = text;
+  else if(!cur.includes(text)) el.value = cur + "; " + text;
+  el.focus();
+}
+function toggleMoreDetails(){
+  const el = document.getElementById("moreDetails"); if(!el) return;
+  el.classList.toggle("hidden");
+  const btn = document.getElementById("moreDetailsBtn"); if(btn) btn.textContent = el.classList.contains("hidden") ? "More details" : "Hide details";
+}
+function plusDaysISO(n){ const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0,10); }
+function autoFollowUp(stage, existing){
+  if(existing) return existing;
+  return (stage === "Contacted" || stage === "Replied") ? plusDaysISO(3) : null;
+}
+function applyAutoHandoff(lead){
+  // 100 -> 5 rule, automated: Replied through Negotiation reach the team
+  // queue without a manual handoff form. Lost is never handed over; Done
+  // (Won) keeps any prior handoff state instead of forcing a new one.
+  if(["Replied","Requirement","Proposal","Negotiation"].includes(lead.stage)){
+    lead.handed_over = true;
+    if(!lead.handoff_note) lead.handoff_note = lead.notes || "";
+    if(!lead.handoff_date) lead.handoff_date = new Date().toISOString();
+    if(!lead.requirement && lead.notes) lead.requirement = lead.notes;
+  }
+  return lead;
+}
+function findDuplicate(email, phone){
+  const e = String(email || "").trim().toLowerCase();
+  const p = digitsOnly(phone);
+  return leads.find(l => {
+    if(e && String(l.email || "").trim().toLowerCase() === e) return true;
+    if(p){
+      const lp = digitsOnly(l.phone);
+      if(lp && (lp === p || (lp.length >= 10 && p.length >= 10 && lp.slice(-10) === p.slice(-10)))) return true;
+    }
+    return false;
+  }) || null;
+}
+function lastActivityFor(leadId){
+  const acts = activities.filter(a => a.lead_id === leadId);
+  if(!acts.length) return null;
+  acts.sort((a,b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
+  return acts[0];
+}
+function countAddedToday(){
+  const t = todayISO();
+  return leads.filter(l => String(l.created_at || "").slice(0,10) === t).length;
+}
+function updateAddedToday(){
+  const el = document.getElementById("addedTodayLine");
+  if(el) el.textContent = "Added today: " + countAddedToday();
+}
+async function autoHandOver(id){
+  const l = leads.find(x => x.id === id); if(!l) return;
+  if(handoffLocked(l)){ alert("Handoff locked: " + l.name + " is " + l.stage + ". Only Replied leads reach the team."); return; }
+  const updated = applyAutoHandoff({ ...l, updated_at: new Date().toISOString() });
+  if(updated.stage === "Replied") updated.stage = "Replied";
+  await saveLeadToBackend(updated);
+  await logActivityToBackend(id, "Handoff", "Handed over automatically on reaching " + updated.stage);
+  setView("handoff");
+}
+async function markDone(leadId){
+  const l = leads.find(x => x.id === leadId); if(!l) return;
+  const updated = { ...l, stage: "Won", updated_at: new Date().toISOString() };
+  await saveLeadToBackend(updated);
+  await logActivityToBackend(leadId, "Note", "Marked Done");
+}
+async function markDoneFromDetail(){ const id = detailId; closeModal("detailModal"); if(id) await markDone(id); }
+
 const DEMO_KEY = "leadcrm_demo_leads_v1";
 const DEMO_ACT_KEY = "leadcrm_demo_activities_v1";
 function demoSeed(){
@@ -167,11 +303,11 @@ function renderStats(){
     <div class="stat"><small>Total leads</small><b>${total}</b><p>All prospects in the system</p></div>
     <div class="stat"><small>Replied rate</small><b>${repliedRate}%</b><p>${repliedOrLater} of ${total} reached Replied or later</p></div>
     <div class="stat"><small>Handed over</small><b>${handed}</b><p>Only Replied leads go to the team</p></div>
-    <div class="stat"><small>Won</small><b>${won}</b><p>Closed deals</p></div>
+    <div class="stat"><small>Done</small><b>${won}</b><p>Closed deals</p></div>
     <div class="stat"><small>Due today</small><b>${dueToday}</b><p>Follow-ups due today</p></div>
     <div class="stat"><small>Overdue</small><b>${overdue}</b><p>Follow-ups past due</p></div>`;
   const stageEl = document.getElementById("stageBreakdown");
-  if(stageEl) stageEl.innerHTML = STAGES.map(s => `<div class="row"><span>${s}</span><b>${byStage[s]}</b></div>`).join("");
+  if(stageEl) stageEl.innerHTML = STAGES.map(s => `<div class="row"><span>${s === "Won" ? "Done / Won" : s}</span><b>${byStage[s]}</b></div>`).join("");
   const dueEl = document.getElementById("dueList");
   if(dueEl){
     const due = leads.filter(l => l.follow_up_date && l.follow_up_date <= todayISO() && l.stage !== "Won" && l.stage !== "Lost")
@@ -189,31 +325,29 @@ function renderStats(){
 }
 function stagePill(stage){
   const cls = stage === "Won" ? "green" : stage === "Lost" ? "red" : stage === "Replied" ? "amber" : stage === "Requirement" || stage === "Proposal" ? "green" : "grey";
-  return `<span class="pill ${cls}">${esc(stage)}</span>`;
+  return `<span class="pill ${cls}">${esc(displayStage(stage))}</span>`;
 }
 function leadRow(l){
-  const locked = handoffLocked(l);
+  const last = lastActivityFor(l.id);
+  const remark = (l.notes || "").length > 60 ? (l.notes || "").slice(0, 60) + "…" : (l.notes || "—");
   return `<tr>
     <td><div class="lead-name">${esc(l.name)}</div><div class="muted">${esc(l.company)}</div></td>
     <td><div>${esc(l.email)}</div><div class="muted">${esc(l.phone)}</div></td>
-    <td>${esc(l.source)}</td>
+    <td>${last ? esc(last.channel) : esc(l.source || "—")}</td>
+    <td class="remark-cell">${esc(remark)}</td>
     <td>${stagePill(l.stage)}</td>
-    <td>${esc(l.assignee || "—")}</td>
-    <td><span class="due ${dueClass(l)}">${esc(dueLabel(l))}</span></td>
     <td>
       <button class="btn small secondary" onclick="openDetail('${l.id}')">Open</button>
-      ${locked
-        ? `<button class="btn small" disabled title="Locked: only Replied leads can be handed over">🔒 Handoff locked</button>`
-        : (l.handed_over
-          ? `<span class="pill green">Handed over</span>`
-          : `<button class="btn small" onclick="openHandoff('${l.id}')">Hand over</button>`)}
+      <button class="btn small secondary" onclick="openDetail('${l.id}')">Log</button>
+      ${l.stage !== "Won" && l.stage !== "Lost" ? `<button class="btn small" onclick="markDone('${l.id}')">Mark Done</button>` : ""}
+      ${l.handed_over ? `<span class="pill green">In team queue</span>` : ""}
     </td></tr>`;
 }
 function renderList(){
   const el = document.getElementById("listBody");
   if(!el) return;
   const rows = getFiltered();
-  el.innerHTML = rows.length ? rows.map(leadRow).join("") : `<tr><td colspan="7"><div class="empty">No leads match these filters. Try clearing the search or add a new lead.</div></td></tr>`;
+  el.innerHTML = rows.length ? rows.map(leadRow).join("") : `<tr><td colspan="6"><div class="empty">No leads match these filters. Try clearing the search or add a new lead.</div></td></tr>`;
 }
 function renderBoard(){
   const el = document.getElementById("board");
@@ -222,12 +356,13 @@ function renderBoard(){
   const groups = ["New","Contacted","Replied","Requirement","Proposal","Negotiation","Won","Lost"];
   el.innerHTML = groups.map(stage => {
     const items = filtered.filter(l => l.stage === stage);
-    return `<div class="col"><h4>${esc(stage)} <span>${items.length}</span></h4>` +
-      (items.map(l => `<div class="leadcard" onclick="openDetail('${l.id}')">
-        <h5>${esc(l.name)}</h5><p>${esc(l.company)} · ${esc(l.source)}</p>
-        <p>${esc(l.assignee ? "Assigned: " + l.assignee : "Unassigned")} · <span class="due ${dueClass(l)}">${esc(dueLabel(l))}</span></p>
+    return `<div class="col"><h4>${esc(displayStage(stage))} <span>${items.length}</span></h4>` +
+      (items.map(l => { const last = lastActivityFor(l.id); const remark = (l.notes || "").length > 60 ? (l.notes || "").slice(0, 60) + "…" : (l.notes || ""); return `<div class="leadcard" onclick="openDetail('${l.id}')">
+        <h5>${esc(l.name)}</h5><p>${esc(l.company)}</p>
+        ${remark ? `<p>${esc(remark)}</p>` : ""}
+        <p class="muted">${last ? esc(last.channel) : esc(l.source || "—")}</p>
         ${handoffLocked(l) ? `<div class="lock">🔒 ${handoffLockReason(l)}</div>` : ""}
-      </div>`).join("") || `<p class="muted">No leads</p>`) + `</div>`;
+      </div>`; }).join("") || `<p class="muted">No leads</p>`) + `</div>`;
   }).join("");
 }
 function renderHandoff(){
@@ -238,7 +373,7 @@ function renderHandoff(){
   if(readyEl) readyEl.innerHTML = ready.length ? ready.map(l => `<div class="card">
     <b>${esc(l.name)}</b> <span class="muted">— ${esc(l.company)} · ${esc(l.source)}</span>
     <p class="muted">${esc(l.requirement || l.notes || "No requirement noted yet.")}</p>
-    <button class="btn small" onclick="openHandoff('${l.id}')">Hand over to team</button>
+    <button class="btn small" onclick="autoHandOver('${l.id}')">Hand over to team</button>
     <button class="btn small secondary" onclick="openDetail('${l.id}')">Open lead</button></div>`).join("")
     : `<p class="muted">No leads are ready yet. Only leads that reach Replied appear here — the other prospects stay with you and are never sent to the team.</p>`;
   const queueEl = document.getElementById("handoffQueue");
@@ -269,19 +404,30 @@ function setView(view){
 
 function openModal(id){ document.getElementById(id).classList.add("open"); }
 function closeModal(id){ document.getElementById(id).classList.remove("open"); }
+function resetQuickForm(){
+  quickChannel = "Email"; quickStatus = "Contacted";
+  document.getElementById("f_who").value = "";
+  ["f_name","f_company","f_email","f_phone","f_assignee","f_follow","f_notes","f_requirement"].forEach(id => { const el = document.getElementById(id); if(el) el.value = ""; });
+  document.getElementById("whoParsed").textContent = "";
+  document.getElementById("moreDetails").classList.add("hidden");
+  document.getElementById("moreDetailsBtn").textContent = "More details";
+  selectChannel("Email"); selectQuickStatus("Contacted");
+}
 function openAddLead(){
   editingId = null;
-  document.getElementById("leadFormTitle").textContent = "Add lead";
-  ["f_name","f_company","f_email","f_phone","f_assignee","f_follow","f_notes","f_requirement"].forEach(id => document.getElementById(id).value = "");
-  document.getElementById("f_source").value = "Email";
-  document.getElementById("f_stage").value = "New";
+  document.getElementById("leadFormTitle").textContent = "Quick add lead";
+  resetQuickForm();
+  document.getElementById("quickSaved").classList.add("hidden");
   document.getElementById("deleteLeadBtn").classList.add("hidden");
+  updateAddedToday();
   openModal("leadModal");
+  setTimeout(() => document.getElementById("f_who").focus(), 50);
 }
 function openEditLead(){
   const l = leads.find(x => x.id === detailId); if(!l) return;
   editingId = l.id;
   document.getElementById("leadFormTitle").textContent = "Edit lead";
+  document.getElementById("f_who").value = l.name || l.email || l.phone || "";
   document.getElementById("f_name").value = l.name || "";
   document.getElementById("f_company").value = l.company || "";
   document.getElementById("f_email").value = l.email || "";
@@ -292,34 +438,87 @@ function openEditLead(){
   document.getElementById("f_follow").value = l.follow_up_date || "";
   document.getElementById("f_notes").value = l.notes || "";
   document.getElementById("f_requirement").value = l.requirement || "";
+  document.getElementById("quickSaved").classList.add("hidden");
+  selectChannel(l.source || "Email"); selectQuickStatus(stageToQuickStatus(l.stage || "New"));
+  updateWhoParsed();
   document.getElementById("deleteLeadBtn").classList.remove("hidden");
   closeModal("detailModal"); openModal("leadModal");
 }
 async function submitLeadForm(e){
   e.preventDefault();
-  const name = document.getElementById("f_name").value.trim();
-  if(!name){ alert("Name is required."); return; }
-  const data = {
-    name, company: document.getElementById("f_company").value.trim(),
-    email: document.getElementById("f_email").value.trim(),
-    phone: document.getElementById("f_phone").value.trim(),
-    source: document.getElementById("f_source").value,
-    stage: document.getElementById("f_stage").value,
+  updateWhoParsed();
+  const parsed = parseWho(document.getElementById("f_who").value);
+  const name = (document.getElementById("f_name").value.trim() || parsed.name).trim();
+  const company = document.getElementById("f_company").value.trim() || parsed.company;
+  const email = document.getElementById("f_email").value.trim() || parsed.email;
+  const phone = document.getElementById("f_phone").value.trim() || parsed.phone;
+  if(!name && !email && !phone){ alert("Enter a name, email, or phone first."); document.getElementById("f_who").focus(); return; }
+  const moreOpen = !document.getElementById("moreDetails").classList.contains("hidden");
+  let stage = quickStatusToStage(quickStatus);
+  let source = quickChannel;
+  if(moreOpen){
+    stage = document.getElementById("f_stage").value || stage;
+    source = document.getElementById("f_source").value || source;
+  }
+  const remark = document.getElementById("f_notes").value.trim();
+  let data = {
+    name: name || email || phone, company, email, phone, source, stage,
     assignee: document.getElementById("f_assignee").value.trim(),
     follow_up_date: document.getElementById("f_follow").value || null,
-    notes: document.getElementById("f_notes").value.trim(),
+    notes: remark,
     requirement: document.getElementById("f_requirement").value.trim(),
   };
+  data.follow_up_date = autoFollowUp(stage, data.follow_up_date);
   if(editingId){
     const old = leads.find(l => l.id === editingId);
-    await saveLeadToBackend({ ...old, ...data, updated_at: new Date().toISOString() });
-  } else if(mode === "supabase"){
-    await saveLeadToBackend({ ...data, handed_over:false, handoff_note:"", handoff_date:null });
-  } else {
-    const lead = { id:"demo-" + Date.now(), ...data, handed_over:false, handoff_note:"", handoff_date:null, created_at:new Date().toISOString(), updated_at:new Date().toISOString() };
-    leads.unshift(lead); saveDemo(); renderAll();
+    let updated = applyAutoHandoff({ ...old, ...data, updated_at: new Date().toISOString() });
+    if(!updated.requirement && updated.notes) updated.requirement = updated.notes;
+    await saveLeadToBackend(updated);
+    await logActivityToBackend(editingId, source, remark || (source + " contact"));
+    closeModal("leadModal"); setStatus("Lead saved.");
+    return;
   }
-  closeModal("leadModal"); setStatus("Lead saved.");
+  // Duplicate guard: same email (case-insensitive) or same phone (digits only)
+  const dup = findDuplicate(email, phone);
+  if(dup){
+    let updated = { ...dup };
+    if(remark && !(updated.notes || "").includes(remark)) updated.notes = updated.notes ? updated.notes + "; " + remark : remark;
+    if(stageIndex(stage) > stageIndex(updated.stage)) updated.stage = stage;
+    updated.follow_up_date = autoFollowUp(updated.stage, updated.follow_up_date);
+    updated = applyAutoHandoff({ ...updated, updated_at: new Date().toISOString() });
+    await saveLeadToBackend(updated);
+    await logActivityToBackend(dup.id, source, remark || (source + " contact"));
+    const savedEl = document.getElementById("quickSaved");
+    savedEl.textContent = "Already in the system — updated " + (dup.name || dup.email || dup.phone) + " instead of creating a duplicate.";
+    savedEl.classList.remove("hidden");
+    resetQuickForm(); document.getElementById("quickSaved").classList.remove("hidden");
+    document.getElementById("quickSaved").textContent = "Already in the system — updated " + (dup.name || dup.email || dup.phone) + " instead of creating a duplicate.";
+    updateAddedToday(); document.getElementById("f_who").focus();
+    return;
+  }
+  let lead = applyAutoHandoff({ ...data, handed_over:false, handoff_note:"", handoff_date:null });
+  if(lead.handed_over){ lead.handoff_note = remark; lead.handoff_date = new Date().toISOString(); if(!lead.requirement) lead.requirement = remark; }
+  let savedId = null;
+  if(mode === "supabase"){
+    await saveLeadToBackend(lead);
+    // saveLeadToBackend reloads from Supabase; find the just-saved lead by email/phone
+    const found = findDuplicate(email, phone);
+    savedId = found ? found.id : null;
+  } else {
+    lead = { id:"demo-" + Date.now(), ...lead, created_at:new Date().toISOString(), updated_at:new Date().toISOString() };
+    leads.unshift(lead); saveDemo(); renderAll(); savedId = lead.id;
+  }
+  if(savedId) await logActivityToBackend(savedId, source, remark || (source + " contact"));
+  addedTodayCount++;
+  // Stay in the modal for the next lead: clear, show Saved, focus Who.
+  const savedName = name;
+  resetQuickForm();
+  const savedEl = document.getElementById("quickSaved");
+  savedEl.textContent = "Saved: " + savedName + " — add another below.";
+  savedEl.classList.remove("hidden");
+  updateAddedToday();
+  setStatus("Lead saved.");
+  document.getElementById("f_who").focus();
 }
 async function deleteCurrentLead(){
   if(!editingId) return;
@@ -358,17 +557,9 @@ async function logNoteActivity(){
   openDetail(detailId);
 }
 function openHandoff(id){
-  const l = leads.find(x => x.id === id); if(!l) return;
-  if(handoffLocked(l)){
-    alert("Handoff locked: " + l.name + " is " + l.stage + ". Only leads that have Replied (or later) can be handed to the backend team. The other prospects stay with you.");
-    return;
-  }
-  if(l.handed_over){ alert(l.name + " is already handed over."); setView("handoff"); return; }
-  detailId = id;
-  document.getElementById("handoffLeadName").textContent = l.name + " — " + (l.company || "") + " (" + l.stage + ")";
-  document.getElementById("h_assignee").value = l.assignee || "";
-  document.getElementById("h_note").value = l.requirement || "";
-  openModal("handoffModal");
+  // No manual handoff form in the fast flow: Replied leads are handed
+  // over automatically. This kept for compatibility and now auto-hands over.
+  return autoHandOver(id);
 }
 async function submitHandoff(e){
   e.preventDefault();
@@ -385,7 +576,7 @@ async function submitHandoff(e){
 }
 function initFilters(){
   const stageSel = document.getElementById("filterStage");
-  stageSel.innerHTML = `<option value="">All stages</option>` + STAGES.map(s => `<option>${s}</option>`).join("");
+  stageSel.innerHTML = `<option value="">All stages</option>` + STAGES.map(s => `<option value="${s}">${s === "Won" ? "Done / Won" : s}</option>`).join("");
   const srcSel = document.getElementById("filterSource");
   srcSel.innerHTML = `<option value="">All sources</option>` + SOURCES.map(s => `<option>${s}</option>`).join("");
 }
@@ -396,6 +587,7 @@ async function init(){
   document.getElementById("filterSource").addEventListener("change", renderAll);
   document.getElementById("filterAssignee").addEventListener("change", renderAll);
   document.getElementById("leadForm").addEventListener("submit", submitLeadForm);
+  const whoEl = document.getElementById("f_who"); if(whoEl) whoEl.addEventListener("input", updateWhoParsed);
   document.getElementById("handoffForm").addEventListener("submit", submitHandoff);
   document.querySelectorAll(".modal-backdrop").forEach(b => b.addEventListener("click", e => { if(e.target === b) b.classList.remove("open"); }));
 

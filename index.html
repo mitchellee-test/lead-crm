@@ -19,7 +19,7 @@
     <button class="navbtn" data-view="board" onclick="setView('board')">Board</button>
     <button class="navbtn" data-view="handoff" onclick="setView('handoff')">Handoff Queue</button>
   </nav>
-  <button class="btn" onclick="openAddLead()">+ Add lead</button>
+  <button class="btn" onclick="openAddLead()">+ Quick add</button>
 </header>
 
 <main class="wrap">
@@ -43,7 +43,7 @@
       <select id="filterAssignee"><option value="">All assignees</option></select>
     </div>
     <div class="tablewrap"><table>
-      <thead><tr><th>Lead</th><th>Contact</th><th>Source</th><th>Stage</th><th>Assignee</th><th>Follow-up</th><th>Actions</th></tr></thead>
+      <thead><tr><th>Lead</th><th>Contact</th><th>Last channel</th><th>Remark</th><th>Status</th><th>Actions</th></tr></thead>
       <tbody id="listBody"></tbody>
     </table></div>
   </section>
@@ -64,20 +64,66 @@
 </main>
 
 <div id="leadModal" class="modal-backdrop"><div class="modal">
-  <h2 id="leadFormTitle">Add lead</h2>
+  <h2 id="leadFormTitle">Quick add lead</h2>
+  <p id="addedTodayLine" class="muted"></p>
+  <div id="quickSaved" class="saved-banner hidden"></div>
   <form id="leadForm">
-    <div class="fieldgrid">
-      <div class="field"><label>Name *</label><input id="f_name" required placeholder="Full name"></div>
-      <div class="field"><label>Company</label><input id="f_company" placeholder="Company"></div>
-      <div class="field"><label>Email</label><input id="f_email" type="email" placeholder="name@company.com"></div>
-      <div class="field"><label>Phone / WhatsApp</label><input id="f_phone" placeholder="+880…"></div>
-      <div class="field"><label>Source channel</label><select id="f_source"><option>Email</option><option>WhatsApp</option><option>Call</option><option>LinkedIn</option><option>Upwork</option><option>Marketplace</option></select></div>
-      <div class="field"><label>Stage</label><select id="f_stage"><option>New</option><option>Contacted</option><option>Replied</option><option>Requirement</option><option>Proposal</option><option>Negotiation</option><option>Won</option><option>Lost</option></select></div>
-      <div class="field"><label>Assignee</label><input id="f_assignee" placeholder="e.g. Backend Team, or a teammate's name"></div>
-      <div class="field"><label>Follow-up date</label><input id="f_follow" type="date"></div>
+    <div class="quick-step">
+      <label>1 · Who</label>
+      <input id="f_who" placeholder="Paste name, company, email, or phone…" autocomplete="off">
+      <p class="muted" id="whoParsed"></p>
+      <div class="fieldgrid">
+        <div class="field"><label>Name</label><input id="f_name" placeholder="Full name"></div>
+        <div class="field"><label>Company</label><input id="f_company" placeholder="Company"></div>
+      </div>
+      <input id="f_email" type="hidden">
+      <input id="f_phone" type="hidden">
     </div>
-    <div class="field"><label>Requirement</label><textarea id="f_requirement" rows="3" placeholder="What does this client need? This is what the backend team will work on after handoff."></textarea></div>
-    <div class="field"><label>Notes</label><textarea id="f_notes" rows="3" placeholder="Anything else — budget, context, links"></textarea></div>
+    <div class="quick-step">
+      <label>2 · Channel — first contact</label>
+      <div class="chips" id="channelButtons">
+        <button type="button" class="chip channel-btn" data-channel="Email" onclick="selectChannel('Email')">Email</button>
+        <button type="button" class="chip channel-btn" data-channel="WhatsApp" onclick="selectChannel('WhatsApp')">WhatsApp</button>
+        <button type="button" class="chip channel-btn" data-channel="Call" onclick="selectChannel('Call')">Call</button>
+        <button type="button" class="chip channel-btn" data-channel="LinkedIn" onclick="selectChannel('LinkedIn')">LinkedIn</button>
+        <button type="button" class="chip channel-btn" data-channel="Upwork" onclick="selectChannel('Upwork')">Upwork</button>
+      </div>
+      <p class="muted">Later contacts are logged in lead detail — a lead contacted by email first can be logged by phone later, without changing this.</p>
+    </div>
+    <div class="quick-step">
+      <label>3 · Remark</label>
+      <div class="chips" id="remarkChips">
+        <button type="button" class="chip" onclick="addRemarkChip('Interested')">Interested</button>
+        <button type="button" class="chip" onclick="addRemarkChip('Asked for pricing')">Asked for pricing</button>
+        <button type="button" class="chip" onclick="addRemarkChip('Call back later')">Call back later</button>
+        <button type="button" class="chip" onclick="addRemarkChip('Meeting booked')">Meeting booked</button>
+        <button type="button" class="chip" onclick="addRemarkChip('No reply yet')">No reply yet</button>
+        <button type="button" class="chip" onclick="addRemarkChip('Not interested')">Not interested</button>
+      </div>
+      <textarea id="f_notes" rows="2" placeholder="Remark — tap a chip above, or type your own"></textarea>
+    </div>
+    <div class="quick-step">
+      <label>Status</label>
+      <div class="chips" id="statusButtons">
+        <button type="button" class="chip status-btn" data-status="New" onclick="selectQuickStatus('New')">New</button>
+        <button type="button" class="chip status-btn" data-status="Contacted" onclick="selectQuickStatus('Contacted')">Contacted</button>
+        <button type="button" class="chip status-btn" data-status="Replied" onclick="selectQuickStatus('Replied')">Replied</button>
+        <button type="button" class="chip status-btn" data-status="Done" onclick="selectQuickStatus('Done')">Done</button>
+        <button type="button" class="chip status-btn" data-status="Lost" onclick="selectQuickStatus('Lost')">Lost</button>
+      </div>
+      <p class="muted">Replied leads go to the team queue automatically — no handoff form needed. Done is saved as Won.</p>
+    </div>
+    <button type="button" class="btn secondary small" id="moreDetailsBtn" onclick="toggleMoreDetails()">More details</button>
+    <div id="moreDetails" class="hidden">
+      <div class="fieldgrid">
+        <div class="field"><label>Source channel</label><select id="f_source"><option>Email</option><option>WhatsApp</option><option>Call</option><option>LinkedIn</option><option>Upwork</option><option>Marketplace</option></select></div>
+        <div class="field"><label>Full stage</label><select id="f_stage"><option>New</option><option>Contacted</option><option>Replied</option><option>Requirement</option><option>Proposal</option><option>Negotiation</option><option>Won</option><option>Lost</option></select></div>
+        <div class="field"><label>Assignee</label><input id="f_assignee" placeholder="Leave blank unless needed"></div>
+        <div class="field"><label>Follow-up date</label><input id="f_follow" type="date"></div>
+      </div>
+      <div class="field"><label>Requirement</label><textarea id="f_requirement" rows="3" placeholder="What does this client need?"></textarea></div>
+      <p class="muted">Handoff fields live here only for rare cases. Normally, Replied is handed over automatically.</p>
+    </div>
     <div class="modal-actions">
       <button type="button" class="btn secondary" id="deleteLeadBtn" onclick="deleteCurrentLead()">Delete lead</button>
       <button type="button" class="btn secondary" onclick="closeModal('leadModal')">Cancel</button>
@@ -91,6 +137,7 @@
   <div id="detailBody"></div>
   <div class="modal-actions">
     <button class="btn secondary" onclick="closeModal('detailModal')">Close</button>
+    <button class="btn secondary" onclick="markDoneFromDetail()">Mark Done</button>
     <button class="btn" onclick="openEditLead()">Edit lead</button>
   </div>
 </div></div>
