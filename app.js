@@ -296,6 +296,9 @@ async function saveDetailOutcome(){
 // — Contacted → Replied → Requirement → Proposal → Negotiation → Won/Lost
 // — and Save status. Moving to Replied or later puts the lead in the
 // team queue automatically via applyAutoHandoff; Won/Lost also set outcome.
+// Moving back to New/Contacted clears the team-queue flag, otherwise a
+// lead reverted from Replied would stay stuck in both Team queue and
+// Locked out at the same time (found in live test 2026-10-30).
 async function saveDetailStage(){
   const l = leads.find(x => x.id === detailId); if(!l) return;
   const sel = document.getElementById("detailStage"); if(!sel) return;
@@ -305,6 +308,9 @@ async function saveDetailStage(){
   else if(l.outcome === "Won" || l.outcome === "Lost") updated.outcome = "";
   if(!updated.lead_code) ensureLeadCode(updated);
   updated = applyAutoHandoff(updated);
+  if(stage === "New" || stage === "Contacted"){
+    updated.handed_over = false; updated.handoff_note = ""; updated.handoff_date = null;
+  }
   await saveLeadToBackend(updated);
   await logActivityToBackend(detailId, "Note", "Status changed to " + (stage === "Won" ? "Done / Won" : stage));
   openDetail(detailId);
@@ -657,6 +663,9 @@ async function submitLeadForm(e){
   if(editingId){
     const old = leads.find(l => l.id === editingId);
     let updated = applyAutoHandoff({ ...old, ...data, updated_at: new Date().toISOString() });
+    if(stage === "New" || stage === "Contacted"){
+      updated.handed_over = false; updated.handoff_note = ""; updated.handoff_date = null;
+    }
     if(!updated.lead_code) ensureLeadCode(updated);
     if(!updated.requirement && updated.notes) updated.requirement = updated.notes;
     await saveLeadToBackend(updated);
