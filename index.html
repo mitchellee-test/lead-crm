@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lead CRM — Team Pipeline &amp; Handoff</title>
+<link rel="stylesheet" href="styles.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
+<script src="app.js" defer></script>
+</head>
+<body>
+<header class="topbar">
+  <div class="logo">Lead<span>CRM</span></div>
+  <span id="modePill" class="mode-pill">Loading…</span>
+  <nav>
+    <button class="navbtn active" data-view="dashboard" onclick="setView('dashboard')">Dashboard</button>
+    <button class="navbtn" data-view="list" onclick="setView('list')">Leads</button>
+    <button class="navbtn" data-view="board" onclick="setView('board')">Board</button>
+    <button class="navbtn" data-view="handoff" onclick="setView('handoff')">Handoff Queue</button>
+  </nav>
+  <button class="btn" onclick="openAddLead()">+ Add lead</button>
+</header>
+
+<main class="wrap">
+  <div id="modeBanner" class="banner">Loading…</div>
+  <p id="statusLine" class="muted"></p>
+
+  <section id="dashboardView">
+    <h1>How are we doing?</h1>
+    <p class="sub">One view of every prospect, every reply, and every handoff to the backend team. Only Replied leads ever reach the team — the rest stay with you.</p>
+    <div id="stats" class="stats"></div>
+    <div class="grid2">
+      <div class="card"><h3>Pipeline by stage</h3><div id="stageBreakdown"></div></div>
+      <div class="card"><h3>Follow-ups due today / overdue</h3><div id="dueList"></div></div>
+    </div>
+    <div class="card">
+      <h3>How handoff works</h3>
+      <p>1. You contact prospects (New → Contacted). &nbsp; 2. When one replies, move them to Replied. &nbsp; 3. Only then can you hand them over — the Handoff Queue locks New and Contacted leads out. &nbsp; 4. Handoff sets an assignee and a requirement note, and moves the lead to Requirement for the backend team.</p>
+      <button class="btn secondary" onclick="setView('handoff')">Open Handoff Queue</button>
+      <button class="btn secondary" onclick="openAddLead()">Add your first lead</button>
+    </div>
+  </section>
+
+  <section id="listView" class="hidden">
+    <h1>All leads</h1>
+    <p class="sub">Search, filter, open a lead to log activity, edit it, or hand it over (Replied leads only).</p>
+    <div class="toolbar">
+      <input id="searchInput" type="search" placeholder="Search name, company, email or phone…">
+      <select id="filterStage"></select>
+      <select id="filterSource"></select>
+      <select id="filterAssignee"><option value="">All assignees</option></select>
+    </div>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Lead</th><th>Contact</th><th>Source</th><th>Stage</th><th>Assignee</th><th>Follow-up</th><th>Actions</th></tr></thead>
+      <tbody id="listBody"></tbody>
+    </table></div>
+  </section>
+
+  <section id="boardView" class="hidden">
+    <h1>Pipeline board</h1>
+    <p class="sub">Open a card to change its stage, log activity, or hand it over — so a stage change is never accidental. Any search or filter you set on the Leads tab also applies here.</p>
+    <div id="board" class="board"></div>
+  </section>
+
+  <section id="handoffView" class="hidden">
+    <h1>Handoff Queue — backend team</h1>
+    <p class="sub">The 100 → 5 rule, enforced: email 100 prospects, only the ones who reply appear as ready. The other 95 are locked out and never sent to the team.</p>
+    <div class="grid2">
+      <div class="card"><h3>Ready to hand over (<span id="countReady">0</span>) — Replied only</h3><div id="handoffReady"></div></div>
+      <div class="card"><h3>Team queue (<span id="countQueue">0</span>) — already handed over</h3><div id="handoffQueue"></div></div>
+    </div>
+    <div class="card" style="margin-top:14px"><h3>Locked out (<span id="countLocked">0</span>) — New / Contacted, cannot be handed over</h3><div id="handoffLocked"></div></div>
+  </section>
+</main>
+
+<div id="leadModal" class="modal-backdrop"><div class="modal">
+  <h2 id="leadFormTitle">Add lead</h2>
+  <form id="leadForm">
+    <div class="fieldgrid">
+      <div class="field"><label>Name *</label><input id="f_name" required placeholder="Full name"></div>
+      <div class="field"><label>Company</label><input id="f_company" placeholder="Company"></div>
+      <div class="field"><label>Email</label><input id="f_email" type="email" placeholder="name@company.com"></div>
+      <div class="field"><label>Phone / WhatsApp</label><input id="f_phone" placeholder="+880…"></div>
+      <div class="field"><label>Source channel</label><select id="f_source"><option>Email</option><option>WhatsApp</option><option>Call</option><option>LinkedIn</option><option>Upwork</option><option>Marketplace</option></select></div>
+      <div class="field"><label>Stage</label><select id="f_stage"><option>New</option><option>Contacted</option><option>Replied</option><option>Requirement</option><option>Proposal</option><option>Negotiation</option><option>Won</option><option>Lost</option></select></div>
+      <div class="field"><label>Assignee</label><input id="f_assignee" placeholder="e.g. Backend Team, or a teammate's name"></div>
+      <div class="field"><label>Follow-up date</label><input id="f_follow" type="date"></div>
+    </div>
+    <div class="field"><label>Requirement</label><textarea id="f_requirement" rows="3" placeholder="What does this client need? This is what the backend team will work on after handoff."></textarea></div>
+    <div class="field"><label>Notes</label><textarea id="f_notes" rows="3" placeholder="Anything else — budget, context, links"></textarea></div>
+    <div class="modal-actions">
+      <button type="button" class="btn secondary" id="deleteLeadBtn" onclick="deleteCurrentLead()">Delete lead</button>
+      <button type="button" class="btn secondary" onclick="closeModal('leadModal')">Cancel</button>
+      <button type="submit" class="btn">Save lead</button>
+    </div>
+  </form>
+</div></div>
+
+<div id="detailModal" class="modal-backdrop"><div class="modal">
+  <h2>Lead detail</h2>
+  <div id="detailBody"></div>
+  <div class="modal-actions">
+    <button class="btn secondary" onclick="closeModal('detailModal')">Close</button>
+    <button class="btn" onclick="openEditLead()">Edit lead</button>
+  </div>
+</div></div>
+
+<div id="handoffModal" class="modal-backdrop"><div class="modal">
+  <h2>Hand over to backend team</h2>
+  <p id="handoffLeadName" class="muted"></p>
+  <p>Only Replied (or later) leads can be handed over. This will move the lead to Requirement and put it in the team queue.</p>
+  <form id="handoffForm">
+    <div class="field"><label>Assignee *</label><input id="h_assignee" required placeholder="Backend Team, or a teammate's name"></div>
+    <div class="field"><label>Requirement / handoff note</label><textarea id="h_note" rows="4" placeholder="What should the backend team do? Include scope, budget, deadline if known."></textarea></div>
+    <div class="modal-actions">
+      <button type="button" class="btn secondary" onclick="closeModal('handoffModal')">Cancel</button>
+      <button type="submit" class="btn">Confirm handoff</button>
+    </div>
+  </form>
+</div></div>
+</body>
+</html>
