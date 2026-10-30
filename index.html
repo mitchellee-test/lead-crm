@@ -113,6 +113,8 @@
         <button type="button" class="chip status-btn" data-status="Lost" onclick="selectQuickStatus('Lost')">Lost</button>
       </div>
       <p class="muted">Replied leads go to the team queue automatically — no handoff form needed. Done is saved as Won.</p>
+      <div class="field"><label>Full status — change anytime</label><select id="f_status_full" onchange="selectFullStatus(this.value)"><option>New</option><option>Contacted</option><option>Replied</option><option>Requirement</option><option>Proposal</option><option>Negotiation</option><option>Won</option><option>Lost</option></select></div>
+      <p class="muted">Use this for the later stages: Contacted → Replied → Requirement → Proposal → Negotiation → Won/Lost. It works in Edit lead too, so you can move a lead forward step by step.</p>
       <div class="field"><label>Outcome</label><select id="f_outcome"><option value="">— No outcome yet —</option><option value="Won">Won</option><option value="Lost">Lost</option></select></div>
       <p class="muted">Choosing Won or Lost here sets the lead's outcome and stage. Leave blank to keep the Status above.</p>
     </div>

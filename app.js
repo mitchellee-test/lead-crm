@@ -190,7 +190,26 @@ function selectChannel(ch){
 function selectQuickStatus(s){
   quickStatus = s;
   const st = document.getElementById("f_stage"); if(st) st.value = quickStatusToStage(s);
+  const full = document.getElementById("f_status_full"); if(full) full.value = quickStatusToStage(s);
   document.querySelectorAll(".status-btn").forEach(b => b.classList.toggle("active", b.dataset.status === s));
+}
+// Full status changer (2026-10-30): the quick chips only cover New /
+// Contacted / Replied / Done / Lost, so a lead that moves on to
+// Requirement, Proposal or Negotiation had no visible way to change
+// status except the hidden More details stage. This dropdown is the
+// visible, always-on status control in Quick Add / Edit lead.
+function selectFullStatus(s){
+  const st = document.getElementById("f_stage"); if(st) st.value = s;
+  const full = document.getElementById("f_status_full"); if(full) full.value = s;
+  // Keep the quick chips in sync where they have a matching option.
+  const q = stageToQuickStatus(s);
+  if(["Requirement","Proposal","Negotiation"].includes(s)){
+    quickStatus = "Replied";
+    document.querySelectorAll(".status-btn").forEach(b => b.classList.toggle("active", b.dataset.status === "Replied"));
+  } else {
+    quickStatus = q;
+    document.querySelectorAll(".status-btn").forEach(b => b.classList.toggle("active", b.dataset.status === q));
+  }
 }
 function addRemarkChip(text){
   const el = document.getElementById("f_notes"); if(!el) return;
@@ -271,6 +290,23 @@ async function saveDetailOutcome(){
   const updated = { ...l, stage: outcome, outcome, updated_at: new Date().toISOString() };
   if(!updated.lead_code) ensureLeadCode(updated);
   await saveLeadToBackend(updated);
+  openDetail(detailId);
+}
+// Easy status changer in lead detail (2026-10-30): pick any full stage
+// — Contacted → Replied → Requirement → Proposal → Negotiation → Won/Lost
+// — and Save status. Moving to Replied or later puts the lead in the
+// team queue automatically via applyAutoHandoff; Won/Lost also set outcome.
+async function saveDetailStage(){
+  const l = leads.find(x => x.id === detailId); if(!l) return;
+  const sel = document.getElementById("detailStage"); if(!sel) return;
+  const stage = sel.value; if(!stage) return;
+  let updated = { ...l, stage, updated_at: new Date().toISOString() };
+  if(stage === "Won" || stage === "Lost") updated.outcome = stage;
+  else if(l.outcome === "Won" || l.outcome === "Lost") updated.outcome = "";
+  if(!updated.lead_code) ensureLeadCode(updated);
+  updated = applyAutoHandoff(updated);
+  await saveLeadToBackend(updated);
+  await logActivityToBackend(detailId, "Note", "Status changed to " + (stage === "Won" ? "Done / Won" : stage));
   openDetail(detailId);
 }
 async function markDoneFromDetail(){ const id = detailId; closeModal("detailModal"); if(id) await markDone(id); }
@@ -536,6 +572,7 @@ function resetQuickForm(){
   document.getElementById("moreDetails").classList.add("hidden");
   document.getElementById("moreDetailsBtn").textContent = "More details";
   selectChannel("Email"); selectQuickStatus("Contacted");
+  const full = document.getElementById("f_status_full"); if(full) full.value = "Contacted";
 }
 function openAddLead(){
   editingId = null;
@@ -575,6 +612,7 @@ function openEditLead(){
   // overwrite them while typing in Who.
   nameManuallyEdited = true; companyManuallyEdited = true; websiteManuallyEdited = true;
   selectChannel(l.source || "Email"); selectQuickStatus(stageToQuickStatus(l.stage || "New"));
+  const full = document.getElementById("f_status_full"); if(full) full.value = l.stage || "New";
   updateWhoParsed();
   document.getElementById("deleteLeadBtn").classList.remove("hidden");
   closeModal("detailModal"); openModal("leadModal");
@@ -597,6 +635,10 @@ async function submitLeadForm(e){
     stage = document.getElementById("f_stage").value || stage;
     source = document.getElementById("f_source").value || source;
   }
+  // Visible full-status dropdown (always shown, not only in More details)
+  // wins over the quick chips when it was used to pick a stage.
+  const fullEl = document.getElementById("f_status_full");
+  if(fullEl && fullEl.value && fullEl.value !== quickStatusToStage(quickStatus)) stage = fullEl.value;
   const outcomeEl = document.getElementById("f_outcome");
   const outcome = outcomeEl ? outcomeEl.value : "";
   // Outcome dropdown overrides Status / full stage when Won or Lost is chosen.
@@ -683,8 +725,11 @@ function openDetail(id){
     <p><b>Assignee:</b> ${esc(l.assignee || "Unassigned")} · <b>Follow-up:</b> <span class="due ${dueClass(l)}">${esc(dueLabel(l))}</span></p>
     <p><b>Requirement:</b> ${esc(l.requirement || "—")}</p>
     <p><b>Notes:</b> ${esc(l.notes || "—")}</p>
-    <div class="field"><label>Outcome</label><select id="detailOutcome"><option value="">— No outcome yet —</option><option value="Won" ${outcomeFromLead(l) === "Won" ? "selected" : ""}>Won</option><option value="Lost" ${outcomeFromLead(l) === "Lost" ? "selected" : ""}>Lost</option></select></div>
-    <button class="btn small" onclick="saveDetailOutcome()">Save outcome</button>
+    <div class="fieldgrid"><div class="field"><label>Status — change anytime</label><select id="detailStage">${STAGES.map(s => `<option value="${s}" ${l.stage === s ? "selected" : ""}>${s === "Won" ? "Done / Won" : s}</option>`).join("")}</select></div>
+    <div class="field"><label>Outcome</label><select id="detailOutcome"><option value="">— No outcome yet —</option><option value="Won" ${outcomeFromLead(l) === "Won" ? "selected" : ""}>Won</option><option value="Lost" ${outcomeFromLead(l) === "Lost" ? "selected" : ""}>Lost</option></select></div></div>
+    <button class="btn small" onclick="saveDetailStage()">Save status</button>
+    <button class="btn small secondary" onclick="saveDetailOutcome()">Save outcome</button>
+    <p class="muted">Status goes Contacted → Replied → Requirement → Proposal → Negotiation → Done/Won or Lost. Replied or later goes to the team queue automatically.</p>
     ${l.handed_over ? `<p><span class="pill green">In team queue</span></p>` : ""}
     ${handoffLocked(l) ? `<div class="lock">🔒 ${handoffLockReason(l)} — this lead is ${esc(l.stage)}. Only Replied through Negotiation leads can be handed to the backend team.</div>` : ""}
     <h3>Log an activity (one tap)</h3>
