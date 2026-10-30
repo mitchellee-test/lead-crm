@@ -68,6 +68,65 @@ let addedTodayCount = 0;
 // in which case manual input always wins.
 let nameManuallyEdited = false;
 let companyManuallyEdited = false;
+let websiteManuallyEdited = false;
+// Website / lead_code / outcome (2026-10-30):
+// - website: visible field, auto-filled from email domain, never overwrites
+//   a manually typed website.
+// - lead_code: memorable display ID, e.g. ACM-001. The Supabase uuid id
+//   stays the primary key; lead_code is display-only and is sent on save
+//   once the leads.lead_code column exists.
+// - outcome: visible Won/Lost dropdown, mapped to stage Won/Lost.
+// - handed_over / handoff_note / handoff_date are INTERNAL ONLY (see
+//   applyAutoHandoff): they drive the team queue in the background and
+//   are never shown as editable fields in the CRM or in the Sheet layout.
+const PERSONAL_DOMAINS = ["gmail","yahoo","outlook","hotmail","icloud","protonmail","example"];
+function websiteFromEmail(email){
+  const domain = String(email || "").trim().split("@")[1] || "";
+  if(!domain) return "";
+  const first = domain.split(".")[0].toLowerCase();
+  if(PERSONAL_DOMAINS.includes(first)) return "";
+  return "https://" + domain.toLowerCase();
+}
+function normalizeWebsite(v){
+  const t = String(v || "").trim();
+  if(!t) return "";
+  if(/^https?:\/\//i.test(t)) return t;
+  return "https://" + t;
+}
+function websiteDisplay(v){
+  return String(v || "").replace(/^https?:\/\//i, "").replace(/\/$/, "");
+}
+function leadCodePrefix(sourceStr){
+  const words = String(sourceStr || "").replace(/[^A-Za-z\s]/g, " ").split(/\s+/).filter(Boolean);
+  if(!words.length) return "LEAD";
+  let letters = words[0].toUpperCase().slice(0, 3);
+  let i = 1;
+  while(letters.length < 3 && i < words.length){ letters += words[i].charAt(0).toUpperCase(); i++; }
+  return letters || "LEAD";
+}
+function nextLeadCode(company, name){
+  // Global sequence: next number after the highest numeric suffix among
+  // ALL existing lead_codes, so codes stay unique even for a repeat company.
+  let max = 0;
+  leads.forEach(l => {
+    const m = String(l.lead_code || "").match(/-(\d+)$/);
+    if(m) max = Math.max(max, parseInt(m[1], 10));
+  });
+  return leadCodePrefix(company || name) + "-" + String(max + 1).padStart(3, "0");
+}
+function ensureLeadCode(lead){
+  if(lead.lead_code) return lead.lead_code;
+  lead.lead_code = nextLeadCode(lead.company, lead.name);
+  return lead.lead_code;
+}
+function displayLeadCode(lead){
+  if(lead.lead_code) return lead.lead_code;
+  // Temporary fallback only for old leads with no lead_code: first 8 chars
+  // of the uuid. A proper lead_code is generated on the next save of that lead.
+  return "#" + String(lead.id || "").slice(0, 8);
+}
+function outcomeFromStage(stage){ return stage === "Won" ? "Won" : stage === "Lost" ? "Lost" : ""; }
+function outcomeFromLead(lead){ return lead.outcome || outcomeFromStage(lead.stage); }
 const REMARK_CHIPS = ["Interested","Asked for pricing","Call back later","Meeting booked","No reply yet","Not interested"];
 function displayStage(stage){ return stage === "Won" ? "Done" : stage; }
 function quickStatusToStage(s){ return s === "Done" ? "Won" : s; }
@@ -114,6 +173,12 @@ function updateWhoParsed(){
   if(p.company && compEl && !companyManuallyEdited) compEl.value = p.company;
   if(p.email) document.getElementById("f_email").value = p.email;
   if(p.phone) document.getElementById("f_phone").value = p.phone;
+  // Auto-fill website from the email domain, unless the user typed one manually.
+  const webEl = document.getElementById("f_website");
+  if(webEl && !websiteManuallyEdited){
+    const auto = websiteFromEmail(p.email);
+    if(auto) webEl.value = auto;
+  }
   const out = document.getElementById("whoParsed");
   if(out) out.textContent = (p.name || p.email || p.phone) ? [p.name, p.company, p.email, p.phone].filter(Boolean).join(" · ") : "";
 }
@@ -193,9 +258,20 @@ async function autoHandOver(id){
 }
 async function markDone(leadId){
   const l = leads.find(x => x.id === leadId); if(!l) return;
-  const updated = { ...l, stage: "Won", updated_at: new Date().toISOString() };
+  const updated = { ...l, stage: "Won", outcome: "Won", updated_at: new Date().toISOString() };
+  if(!updated.lead_code) ensureLeadCode(updated);
   await saveLeadToBackend(updated);
   await logActivityToBackend(leadId, "Note", "Marked Done");
+}
+async function saveDetailOutcome(){
+  const l = leads.find(x => x.id === detailId); if(!l) return;
+  const sel = document.getElementById("detailOutcome"); if(!sel) return;
+  const outcome = sel.value;
+  if(outcome !== "Won" && outcome !== "Lost"){ alert("Choose Won or Lost to set an outcome."); return; }
+  const updated = { ...l, stage: outcome, outcome, updated_at: new Date().toISOString() };
+  if(!updated.lead_code) ensureLeadCode(updated);
+  await saveLeadToBackend(updated);
+  openDetail(detailId);
 }
 async function markDoneFromDetail(){ const id = detailId; closeModal("detailModal"); if(id) await markDone(id); }
 
@@ -207,10 +283,12 @@ function demoSeed(){
   const tm = new Date(Date.now() + 86400000).toISOString().slice(0,10);
   const mk = (id,name,company,email,phone,source,stage,assignee,follow_up_date,requirement) => ({
     id, name, company, email, phone, source, stage, assignee, follow_up_date,
-    notes:"", requirement: requirement || "", handed_over: stageIndex(stage) >= stageIndex("Requirement") && stage !== "Lost",
+    notes:"", requirement: requirement || "", website:"", lead_code:"",
+    outcome: stage === "Won" ? "Won" : stage === "Lost" ? "Lost" : "",
+    handed_over: stageIndex(stage) >= stageIndex("Requirement") && stage !== "Lost",
     handoff_note:"", handoff_date:null, created_at:new Date().toISOString(), updated_at:new Date().toISOString()
   });
-  return [
+  const seeded = [
     mk("demo-1","Ayesha Rahman","Rahman Trading","ayesha@example.com","+8801700000001","Email","Replied","","", "Wants a quote for website redesign"),
     mk("demo-2","Tanvir Ahmed","Ahmed Logistics","tanvir@example.com","+8801700000002","WhatsApp","Replied","","", "Needs delivery app, budget discussion"),
     mk("demo-3","Sara Khan","Khan Boutique","sara@example.com","+8801700000003","LinkedIn","Contacted","",tm,""),
@@ -222,6 +300,9 @@ function demoSeed(){
     mk("demo-9","Mitu Akter","Akter Fashion","mitu@example.com","+8801700000009","Email","New","",tm,""),
     mk("demo-10","Shakib Hasan","Hasan Export","shakib@example.com","+8801700000010","Email","Lost","","","Not interested right now"),
   ];
+  // Global sequence for demo codes, in list order: ACM-style prefix + 001, 002, …
+  seeded.forEach((lead, i) => { lead.lead_code = leadCodePrefix(lead.company || lead.name) + "-" + String(i + 1).padStart(3, "0"); });
+  return seeded;
 }
 function saveDemo(){
   try{ localStorage.setItem(DEMO_KEY, JSON.stringify(leads)); localStorage.setItem(DEMO_ACT_KEY, JSON.stringify(activities)); }catch(e){}
@@ -291,7 +372,7 @@ function getFiltered(){
     if(stage && l.stage !== stage) return false;
     if(source && l.source !== source) return false;
     if(assignee && (l.assignee || "") !== assignee) return false;
-    if(q && !((l.name+" "+l.company+" "+l.email+" "+l.phone).toLowerCase().includes(q))) return false;
+    if(q && !((l.name+" "+l.company+" "+l.email+" "+l.phone+" "+(l.website||"")+" "+(l.lead_code||"")+" "+(l.outcome||"")).toLowerCase().includes(q))) return false;
     return true;
   });
 }
@@ -337,9 +418,10 @@ function stagePill(stage){
 function leadRow(l){
   const last = lastActivityFor(l.id);
   const remark = (l.notes || "").length > 60 ? (l.notes || "").slice(0, 60) + "…" : (l.notes || "—");
+  const web = l.website ? `<div><a class="website-link" href="${esc(l.website)}" target="_blank" rel="noopener">${esc(websiteDisplay(l.website))}</a></div>` : "";
   return `<tr>
-    <td><div class="lead-name">${esc(l.name)}</div><div class="muted">${esc(l.company)}</div></td>
-    <td><div>${esc(l.email)}</div><div class="muted">${esc(l.phone)}</div></td>
+    <td><div class="lead-name"><span class="lead-code">${esc(displayLeadCode(l))}</span> · ${esc(l.name)}</div><div class="muted">${esc(l.company)}</div></td>
+    <td><div>${esc(l.email)}</div><div class="muted">${esc(l.phone)}</div>${web}</td>
     <td>${last ? esc(last.channel) : esc(l.source || "—")}</td>
     <td class="remark-cell">${esc(remark)}</td>
     <td>${stagePill(l.stage)}</td>
@@ -365,7 +447,8 @@ function renderBoard(){
     const items = filtered.filter(l => l.stage === stage);
     return `<div class="col"><h4>${esc(displayStage(stage))} <span>${items.length}</span></h4>` +
       (items.map(l => { const last = lastActivityFor(l.id); const remark = (l.notes || "").length > 60 ? (l.notes || "").slice(0, 60) + "…" : (l.notes || ""); return `<div class="leadcard" onclick="openDetail('${l.id}')">
-        <h5>${esc(l.name)}</h5><p>${esc(l.company)}</p>
+        <h5><span class="lead-code">${esc(displayLeadCode(l))}</span> · ${esc(l.name)}</h5><p>${esc(l.company)}</p>
+        ${l.website ? `<p><a class="website-link" href="${esc(l.website)}" target="_blank" rel="noopener">${esc(websiteDisplay(l.website))}</a></p>` : ""}
         ${remark ? `<p>${esc(remark)}</p>` : ""}
         <p class="muted">${last ? esc(last.channel) : esc(l.source || "—")}</p>
         ${handoffLocked(l) ? `<div class="lock">🔒 ${handoffLockReason(l)}</div>` : ""}
@@ -378,16 +461,16 @@ function renderHandoff(){
   const locked = leads.filter(handoffLocked);
   const readyEl = document.getElementById("handoffReady");
   if(readyEl) readyEl.innerHTML = ready.length ? ready.map(l => `<div class="card">
-    <b>${esc(l.name)}</b> <span class="muted">— ${esc(l.company)} · ${esc(l.source)}</span>
+    <b><span class="lead-code">${esc(displayLeadCode(l))}</span> · ${esc(l.name)}</b> <span class="muted">— ${esc(l.company)} · ${esc(l.source)}</span>
     <p class="muted">${esc(l.requirement || l.notes || "No requirement noted yet.")}</p>
     <button class="btn small" onclick="autoHandOver('${l.id}')">Hand over to team</button>
     <button class="btn small secondary" onclick="openDetail('${l.id}')">Open lead</button></div>`).join("")
     : `<p class="muted">No leads are ready yet. Only leads that reach Replied appear here — the other prospects stay with you and are never sent to the team.</p>`;
   const queueEl = document.getElementById("handoffQueue");
   if(queueEl) queueEl.innerHTML = queue.length ? queue.map(l => `<div class="card">
-    <b>${esc(l.name)}</b> ${stagePill(l.stage)} <span class="muted">· Assigned to ${esc(l.assignee || "team")}</span>
+    <b><span class="lead-code">${esc(displayLeadCode(l))}</span> · ${esc(l.name)}</b> ${stagePill(l.stage)} <span class="muted">· Assigned to ${esc(l.assignee || "team")}</span>
     <p><b>Requirement:</b> ${esc(l.requirement || "—")}</p>
-    <p class="muted">Handoff note: ${esc(l.handoff_note || "—")} ${l.handoff_date ? "· " + new Date(l.handoff_date).toLocaleString() : ""}</p>
+    ${l.website ? `<p><a class="website-link" href="${esc(l.website)}" target="_blank" rel="noopener">${esc(websiteDisplay(l.website))}</a></p>` : ""}
     <button class="btn small secondary" onclick="openDetail('${l.id}')">Open lead</button></div>`).join("")
     : `<p class="muted">Team queue is empty. Hand over a Replied lead to see it here.</p>`;
   const lockedEl = document.getElementById("handoffLocked");
@@ -413,9 +496,10 @@ function openModal(id){ document.getElementById(id).classList.add("open"); }
 function closeModal(id){ document.getElementById(id).classList.remove("open"); }
 function resetQuickForm(){
   quickChannel = "Email"; quickStatus = "Contacted";
-  nameManuallyEdited = false; companyManuallyEdited = false;
+  nameManuallyEdited = false; companyManuallyEdited = false; websiteManuallyEdited = false;
   document.getElementById("f_who").value = "";
-  ["f_name","f_company","f_email","f_phone","f_assignee","f_follow","f_notes","f_requirement"].forEach(id => { const el = document.getElementById(id); if(el) el.value = ""; });
+  ["f_name","f_company","f_website","f_email","f_phone","f_assignee","f_follow","f_notes","f_requirement"].forEach(id => { const el = document.getElementById(id); if(el) el.value = ""; });
+  const outEl = document.getElementById("f_outcome"); if(outEl) outEl.value = "";
   document.getElementById("whoParsed").textContent = "";
   document.getElementById("moreDetails").classList.add("hidden");
   document.getElementById("moreDetailsBtn").textContent = "More details";
@@ -438,6 +522,8 @@ function openEditLead(){
   document.getElementById("f_who").value = l.name || l.email || l.phone || "";
   document.getElementById("f_name").value = l.name || "";
   document.getElementById("f_company").value = l.company || "";
+  document.getElementById("f_website").value = l.website || "";
+  const outEl = document.getElementById("f_outcome"); if(outEl) outEl.value = outcomeFromLead(l);
   document.getElementById("f_email").value = l.email || "";
   document.getElementById("f_phone").value = l.phone || "";
   document.getElementById("f_source").value = l.source || "Email";
@@ -449,7 +535,7 @@ function openEditLead(){
   document.getElementById("quickSaved").classList.add("hidden");
   // Editing: loaded values are the user's/manual values, so Who must not
   // overwrite them while typing in Who.
-  nameManuallyEdited = true; companyManuallyEdited = true;
+  nameManuallyEdited = true; companyManuallyEdited = true; websiteManuallyEdited = true;
   selectChannel(l.source || "Email"); selectQuickStatus(stageToQuickStatus(l.stage || "New"));
   updateWhoParsed();
   document.getElementById("deleteLeadBtn").classList.remove("hidden");
@@ -473,9 +559,15 @@ async function submitLeadForm(e){
     stage = document.getElementById("f_stage").value || stage;
     source = document.getElementById("f_source").value || source;
   }
+  const outcomeEl = document.getElementById("f_outcome");
+  const outcome = outcomeEl ? outcomeEl.value : "";
+  // Outcome dropdown overrides Status / full stage when Won or Lost is chosen.
+  if(outcome === "Won" || outcome === "Lost") stage = outcome;
   const remark = document.getElementById("f_notes").value.trim();
+  const website = normalizeWebsite(document.getElementById("f_website").value.trim() || websiteFromEmail(email));
   let data = {
-    name: name || email || phone, company, email, phone, source, stage,
+    name: name || email || phone, company, email, phone, website, source, stage,
+    outcome,
     assignee: document.getElementById("f_assignee").value.trim(),
     follow_up_date: document.getElementById("f_follow").value || null,
     notes: remark,
@@ -485,6 +577,7 @@ async function submitLeadForm(e){
   if(editingId){
     const old = leads.find(l => l.id === editingId);
     let updated = applyAutoHandoff({ ...old, ...data, updated_at: new Date().toISOString() });
+    if(!updated.lead_code) ensureLeadCode(updated);
     if(!updated.requirement && updated.notes) updated.requirement = updated.notes;
     await saveLeadToBackend(updated);
     await logActivityToBackend(editingId, source, remark || (source + " contact"));
@@ -496,7 +589,10 @@ async function submitLeadForm(e){
   if(dup){
     let updated = { ...dup };
     if(remark && !(updated.notes || "").includes(remark)) updated.notes = updated.notes ? updated.notes + "; " + remark : remark;
-    if(stageIndex(stage) > stageIndex(updated.stage)) updated.stage = stage;
+    if(!updated.website && website) updated.website = website;
+    if(outcome === "Won" || outcome === "Lost"){ updated.stage = outcome; updated.outcome = outcome; }
+    else if(stageIndex(stage) > stageIndex(updated.stage)) updated.stage = stage;
+    if(!updated.lead_code) ensureLeadCode(updated);
     updated.follow_up_date = autoFollowUp(updated.stage, updated.follow_up_date);
     updated = applyAutoHandoff({ ...updated, updated_at: new Date().toISOString() });
     await saveLeadToBackend(updated);
@@ -509,7 +605,7 @@ async function submitLeadForm(e){
     updateAddedToday(); document.getElementById("f_who").focus();
     return;
   }
-  let lead = applyAutoHandoff({ ...data, handed_over:false, handoff_note:"", handoff_date:null });
+  let lead = applyAutoHandoff({ ...data, lead_code: nextLeadCode(company, name || email || phone), handed_over:false, handoff_note:"", handoff_date:null });
   if(lead.handed_over){ lead.handoff_note = remark; lead.handoff_date = new Date().toISOString(); if(!lead.requirement) lead.requirement = remark; }
   let savedId = null;
   if(mode === "supabase"){
@@ -543,12 +639,15 @@ function openDetail(id){
   detailId = id;
   const acts = activities.filter(a => a.lead_id === id).slice(0,50);
   document.getElementById("detailBody").innerHTML = `
-    <p><b>${esc(l.name)}</b> ${stagePill(l.stage)} · ${esc(l.source)}</p>
+    <p><b><span class="lead-code">${esc(displayLeadCode(l))}</span> · ${esc(l.name)}</b> ${stagePill(l.stage)} · ${esc(l.source)}</p>
     <p class="muted">${esc(l.company)} · ${esc(l.email)} · ${esc(l.phone)}</p>
+    ${l.website ? `<p><b>Website:</b> <a class="website-link" href="${esc(l.website)}" target="_blank" rel="noopener">${esc(websiteDisplay(l.website))}</a></p>` : ""}
     <p><b>Assignee:</b> ${esc(l.assignee || "Unassigned")} · <b>Follow-up:</b> <span class="due ${dueClass(l)}">${esc(dueLabel(l))}</span></p>
     <p><b>Requirement:</b> ${esc(l.requirement || "—")}</p>
     <p><b>Notes:</b> ${esc(l.notes || "—")}</p>
-    ${l.handed_over ? `<p><b>Handed over:</b> ${esc(l.handoff_note || "")} ${l.handoff_date ? "· " + new Date(l.handoff_date).toLocaleString() : ""}</p>` : ""}
+    <div class="field"><label>Outcome</label><select id="detailOutcome"><option value="">— No outcome yet —</option><option value="Won" ${outcomeFromLead(l) === "Won" ? "selected" : ""}>Won</option><option value="Lost" ${outcomeFromLead(l) === "Lost" ? "selected" : ""}>Lost</option></select></div>
+    <button class="btn small" onclick="saveDetailOutcome()">Save outcome</button>
+    ${l.handed_over ? `<p><span class="pill green">In team queue</span></p>` : ""}
     ${handoffLocked(l) ? `<div class="lock">🔒 ${handoffLockReason(l)} — this lead is ${esc(l.stage)}. Only Replied through Negotiation leads can be handed to the backend team.</div>` : ""}
     <h3>Log an activity (one tap)</h3>
     <div class="chips">${CHANNELS.map(c => `<button class="chip" onclick="quickLog('${c}')">+ ${c}</button>`).join("")}</div>
@@ -603,6 +702,7 @@ async function init(){
   const whoEl = document.getElementById("f_who"); if(whoEl) whoEl.addEventListener("input", updateWhoParsed);
   const nameEl = document.getElementById("f_name"); if(nameEl) nameEl.addEventListener("input", () => { nameManuallyEdited = true; });
   const compEl = document.getElementById("f_company"); if(compEl) compEl.addEventListener("input", () => { companyManuallyEdited = true; });
+  const webEl = document.getElementById("f_website"); if(webEl) webEl.addEventListener("input", () => { websiteManuallyEdited = true; });
   // Bug fix 2026-10-30: pressing Enter in Who/Name submitted the form
   // immediately, clearing the form before the user had finished — which
   // looked like being kicked back to Dashboard. Enter in a single-line

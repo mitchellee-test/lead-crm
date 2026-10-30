@@ -76,6 +76,7 @@
         <div class="field"><label>Name</label><input id="f_name" placeholder="Full name"></div>
         <div class="field"><label>Company</label><input id="f_company" placeholder="Company"></div>
       </div>
+      <div class="field"><label>Website</label><input id="f_website" placeholder="https://example.com — auto-filled from email, you can edit it"></div>
       <input id="f_email" type="hidden">
       <input id="f_phone" type="hidden">
     </div>
@@ -112,6 +113,8 @@
         <button type="button" class="chip status-btn" data-status="Lost" onclick="selectQuickStatus('Lost')">Lost</button>
       </div>
       <p class="muted">Replied leads go to the team queue automatically — no handoff form needed. Done is saved as Won.</p>
+      <div class="field"><label>Outcome</label><select id="f_outcome"><option value="">— No outcome yet —</option><option value="Won">Won</option><option value="Lost">Lost</option></select></div>
+      <p class="muted">Choosing Won or Lost here sets the lead's outcome and stage. Leave blank to keep the Status above.</p>
     </div>
     <button type="button" class="btn secondary small" id="moreDetailsBtn" onclick="toggleMoreDetails()">More details</button>
     <div id="moreDetails" class="hidden">
@@ -122,7 +125,7 @@
         <div class="field"><label>Follow-up date</label><input id="f_follow" type="date"></div>
       </div>
       <div class="field"><label>Requirement</label><textarea id="f_requirement" rows="3" placeholder="What does this client need?"></textarea></div>
-      <p class="muted">Handoff fields live here only for rare cases. Normally, Replied is handed over automatically.</p>
+      <p class="muted">More details only: source, full stage, assignee, follow-up and requirement. Replied leads are handed over automatically in the background.</p>
     </div>
     <div class="modal-actions">
       <button type="button" class="btn secondary" id="deleteLeadBtn" onclick="deleteCurrentLead()">Delete lead</button>

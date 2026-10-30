@@ -45,6 +45,8 @@ table{width:100%;border-collapse:collapse;min-width:820px}
 th,td{text-align:left;padding:12px;border-bottom:1px solid #f1f5f9;font-size:14px;vertical-align:top}
 th{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.05em}
 .lead-name{font-weight:700}
+.lead-code{font-weight:700;color:var(--primary)}
+.website-link{word-break:break-all}
 .muted{color:var(--muted);font-size:13px}
 .due{font-weight:700}.due.overdue{color:var(--red)}.due.today{color:var(--amber)}
 .board{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;align-items:start;overflow:auto;padding-bottom:8px}
