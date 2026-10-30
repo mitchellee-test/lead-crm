@@ -61,6 +61,13 @@ function dueLabel(lead){
 let quickChannel = "Email";
 let quickStatus = "Contacted";
 let addedTodayCount = 0;
+// Bug fix 2026-10-30: Who auto-parse used to fill Name only while it was
+// empty, so after the first letter ("A") it froze and never updated to the
+// full name. Track manual edits instead: auto-parse updates Name/Company
+// on every Who keystroke UNLESS the user has typed in that field directly,
+// in which case manual input always wins.
+let nameManuallyEdited = false;
+let companyManuallyEdited = false;
 const REMARK_CHIPS = ["Interested","Asked for pricing","Call back later","Meeting booked","No reply yet","Not interested"];
 function displayStage(stage){ return stage === "Won" ? "Done" : stage; }
 function quickStatusToStage(s){ return s === "Done" ? "Won" : s; }
@@ -103,8 +110,8 @@ function updateWhoParsed(){
   const whoEl = document.getElementById("f_who"); if(!whoEl) return;
   const p = parseWho(whoEl.value);
   const nameEl = document.getElementById("f_name"), compEl = document.getElementById("f_company");
-  if(p.name && nameEl && !nameEl.value) nameEl.value = p.name;
-  if(p.company && compEl && !compEl.value) compEl.value = p.company;
+  if(p.name && nameEl && !nameManuallyEdited) nameEl.value = p.name;
+  if(p.company && compEl && !companyManuallyEdited) compEl.value = p.company;
   if(p.email) document.getElementById("f_email").value = p.email;
   if(p.phone) document.getElementById("f_phone").value = p.phone;
   const out = document.getElementById("whoParsed");
@@ -406,6 +413,7 @@ function openModal(id){ document.getElementById(id).classList.add("open"); }
 function closeModal(id){ document.getElementById(id).classList.remove("open"); }
 function resetQuickForm(){
   quickChannel = "Email"; quickStatus = "Contacted";
+  nameManuallyEdited = false; companyManuallyEdited = false;
   document.getElementById("f_who").value = "";
   ["f_name","f_company","f_email","f_phone","f_assignee","f_follow","f_notes","f_requirement"].forEach(id => { const el = document.getElementById(id); if(el) el.value = ""; });
   document.getElementById("whoParsed").textContent = "";
@@ -439,6 +447,9 @@ function openEditLead(){
   document.getElementById("f_notes").value = l.notes || "";
   document.getElementById("f_requirement").value = l.requirement || "";
   document.getElementById("quickSaved").classList.add("hidden");
+  // Editing: loaded values are the user's/manual values, so Who must not
+  // overwrite them while typing in Who.
+  nameManuallyEdited = true; companyManuallyEdited = true;
   selectChannel(l.source || "Email"); selectQuickStatus(stageToQuickStatus(l.stage || "New"));
   updateWhoParsed();
   document.getElementById("deleteLeadBtn").classList.remove("hidden");
@@ -448,7 +459,9 @@ async function submitLeadForm(e){
   e.preventDefault();
   updateWhoParsed();
   const parsed = parseWho(document.getElementById("f_who").value);
-  const name = (document.getElementById("f_name").value.trim() || parsed.name).trim();
+  // If Name was only auto-filled (not manually edited), trust the full
+  // parsed Who value over any stale auto-filled value.
+  const name = (!nameManuallyEdited && parsed.name ? parsed.name : (document.getElementById("f_name").value.trim() || parsed.name)).trim();
   const company = document.getElementById("f_company").value.trim() || parsed.company;
   const email = document.getElementById("f_email").value.trim() || parsed.email;
   const phone = document.getElementById("f_phone").value.trim() || parsed.phone;
@@ -588,6 +601,24 @@ async function init(){
   document.getElementById("filterAssignee").addEventListener("change", renderAll);
   document.getElementById("leadForm").addEventListener("submit", submitLeadForm);
   const whoEl = document.getElementById("f_who"); if(whoEl) whoEl.addEventListener("input", updateWhoParsed);
+  const nameEl = document.getElementById("f_name"); if(nameEl) nameEl.addEventListener("input", () => { nameManuallyEdited = true; });
+  const compEl = document.getElementById("f_company"); if(compEl) compEl.addEventListener("input", () => { companyManuallyEdited = true; });
+  // Bug fix 2026-10-30: pressing Enter in Who/Name submitted the form
+  // immediately, clearing the form before the user had finished — which
+  // looked like being kicked back to Dashboard. Enter in a single-line
+  // input now moves to the next field instead of saving; Save lead (or
+  // clicking it) is the only way to save. Enter in the remark textarea
+  // still makes a new line, as normal.
+  document.getElementById("leadForm").addEventListener("keydown", (e) => {
+    if(e.key !== "Enter" || !e.target || e.target.tagName !== "INPUT") return;
+    e.preventDefault();
+    const fields = [...document.querySelectorAll("#leadForm input, #leadForm textarea, #leadForm select")]
+      .filter(el => el.type !== "hidden" && !el.disabled && el.offsetParent !== null);
+    const idx = fields.indexOf(e.target);
+    const next = fields[idx + 1];
+    if(next) next.focus();
+    else { const btn = document.querySelector('#leadForm button[type="submit"]'); if(btn) btn.focus(); }
+  });
   document.getElementById("handoffForm").addEventListener("submit", submitHandoff);
   document.querySelectorAll(".modal-backdrop").forEach(b => b.addEventListener("click", e => { if(e.target === b) b.classList.remove("open"); }));
 
