@@ -23,28 +23,19 @@
 </header>
 
 <main class="wrap">
-  <div id="modeBanner" class="banner">Loading…</div>
   <p id="statusLine" class="muted"></p>
 
   <section id="dashboardView">
-    <h1>How are we doing?</h1>
-    <p class="sub">One view of every prospect, every reply, and every handoff to the backend team. Only Replied leads ever reach the team — the rest stay with you.</p>
+    <h1>Overview</h1>
     <div id="stats" class="stats"></div>
     <div class="grid2">
       <div class="card"><h3>Pipeline by stage</h3><div id="stageBreakdown"></div></div>
       <div class="card"><h3>Follow-ups due today / overdue</h3><div id="dueList"></div></div>
     </div>
-    <div class="card">
-      <h3>How handoff works</h3>
-      <p>1. You contact prospects (New → Contacted). &nbsp; 2. When one replies, move them to Replied. &nbsp; 3. Only then can you hand them over — the Handoff Queue locks New and Contacted leads out. &nbsp; 4. Handoff sets an assignee and a requirement note, and moves the lead to Requirement for the backend team.</p>
-      <button class="btn secondary" onclick="setView('handoff')">Open Handoff Queue</button>
-      <button class="btn secondary" onclick="openAddLead()">Add your first lead</button>
-    </div>
   </section>
 
   <section id="listView" class="hidden">
     <h1>All leads</h1>
-    <p class="sub">Search, filter, open a lead to log activity, edit it, or hand it over (Replied leads only).</p>
     <div class="toolbar">
       <input id="searchInput" type="search" placeholder="Search name, company, email or phone…">
       <select id="filterStage"></select>
@@ -59,13 +50,11 @@
 
   <section id="boardView" class="hidden">
     <h1>Pipeline board</h1>
-    <p class="sub">Open a card to change its stage, log activity, or hand it over — so a stage change is never accidental. Any search or filter you set on the Leads tab also applies here.</p>
     <div id="board" class="board"></div>
   </section>
 
   <section id="handoffView" class="hidden">
-    <h1>Handoff Queue — backend team</h1>
-    <p class="sub">The 100 → 5 rule, enforced: email 100 prospects, only the ones who reply appear as ready. The other 95 are locked out and never sent to the team.</p>
+    <h1>Handoff Queue</h1>
     <div class="grid2">
       <div class="card"><h3>Ready to hand over (<span id="countReady">0</span>) — Replied only</h3><div id="handoffReady"></div></div>
       <div class="card"><h3>Team queue (<span id="countQueue">0</span>) — already handed over</h3><div id="handoffQueue"></div></div>

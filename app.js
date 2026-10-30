@@ -399,14 +399,11 @@ async function init(){
   document.getElementById("handoffForm").addEventListener("submit", submitHandoff);
   document.querySelectorAll(".modal-backdrop").forEach(b => b.addEventListener("click", e => { if(e.target === b) b.classList.remove("open"); }));
 
-  const banner = document.getElementById("modeBanner");
   const pill = document.getElementById("modePill");
   if(hasSupabase && window.supabase){
     mode = "supabase";
     supabaseClient = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
-    pill.textContent = "● Live — shared Supabase"; pill.className = "mode-pill live";
-    banner.className = "banner live";
-    banner.innerHTML = "<b>Live shared mode.</b> Everyone opening this Vercel URL shares the same Supabase database, so teammates editing at the same time will see each other's updates (realtime + refresh every 5 seconds). Last write wins if two people edit the same lead at once.";
+    pill.textContent = "● Connected"; pill.className = "mode-pill live";
     await loadFromSupabase();
     supabaseClient.channel("leads-changes")
       .on("postgres_changes", { event:"*", schema:"public", table:"leads" }, loadFromSupabase)
@@ -415,10 +412,9 @@ async function init(){
     setInterval(loadFromSupabase, 5000);
   } else {
     mode = "demo";
-    pill.textContent = "Local Demo — not shared";
-    banner.innerHTML = "<b>Local Demo mode — demo data is NOT shared with teammates.</b> This browser is storing leads locally only. To share with your team, follow README.md: create a free Supabase project, run schema.sql, paste the URL + anon key into config.js, push to GitHub and deploy on Vercel. The demo leads below are examples — delete or edit them, or clear them by deleting all leads.";
+    pill.textContent = "● Demo";
     loadDemo(); renderAll();
   }
-  setStatus(mode === "supabase" ? "Connected to shared Supabase database." : "Local Demo mode. Add Supabase in config.js to share with teammates.");
+  setStatus(mode === "supabase" ? "Connected" : "Demo");
 }
 document.addEventListener("DOMContentLoaded", init);

@@ -157,3 +157,25 @@ Suggested team workflow:
   Vercel URL, not a local `file://` copy.
 - **Vercel shows a blank page:** make sure Output Directory is the
   repo root and Build Command is empty — this app needs no build.
+
+## Google Sheets sync (optional, draft included)
+
+Yes — a Sheet can sync with Supabase, and therefore with the CRM, because
+the CRM reads/writes Supabase. The draft bridge is `google-sheets-sync.gs`
+(Google Apps Script, not part of the live CRM page):
+
+- **Sheet → Supabase → CRM:** run `syncSheetToSupabase()` in Apps Script
+  (manually, or on a time trigger every 5–15 minutes). It upserts Sheet
+  rows into Supabase by `id`; the CRM then shows them via realtime/refresh.
+- **CRM → Supabase → Sheet:** run `syncSupabaseToSheet()`, or use the
+  `doPost()` webhook receiver for single-lead updates.
+- **Conflict rule:** last write wins by `updated_at`. It does not merge
+  individual fields edited in both places at once, so for heavy editing
+  keep the CRM as the main editor and use the Sheet for bulk import/view.
+- **Keys:** store the Supabase URL/key in Apps Script Script Properties
+  only — never in the Sheet itself, and never a `service_role` key in
+  `config.js`. Add Supabase Auth/RLS before real client data, as above.
+
+To wire it up for real, share the Sheet (or its ID) and say which
+direction you want first — Sheet → CRM, CRM → Sheet, or both — and the
+script can be pointed at that Sheet and scheduled.
