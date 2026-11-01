@@ -409,11 +409,11 @@ function getFiltered(){
   const q = (document.getElementById("searchInput").value || "").toLowerCase();
   const stage = document.getElementById("filterStage").value;
   const source = document.getElementById("filterSource").value;
-  const assignee = document.getElementById("filterAssignee").value;
+ 
   return leads.filter(l => {
     if(stage && l.stage !== stage) return false;
     if(source && l.source !== source) return false;
-    if(assignee && (l.assignee || "") !== assignee) return false;
+
     if(q && !((l.name+" "+l.company+" "+l.email+" "+l.phone+" "+(l.website||"")+" "+(l.lead_code||"")+" "+(l.outcome||"")).toLowerCase().includes(q))) return false;
     return true;
   });
@@ -455,13 +455,7 @@ function renderStats(){
     dueEl.innerHTML = due.length ? due.map(l => `<div class="row"><span><b>${esc(l.name)}</b> <span class="muted">(${esc(l.stage)})</span></span><span class="due ${dueClass(l)}">${dueLabel(l)}</span></div>`).join("")
       : `<p class="muted">Nothing due today or overdue. Nice work.</p>`;
   }
-  const assigneeSel = document.getElementById("filterAssignee");
-  if(assigneeSel){
-    const cur = assigneeSel.value;
-    const names = [...new Set(leads.map(l => l.assignee).filter(Boolean))].sort();
-    assigneeSel.innerHTML = `<option value="">All assignees</option>` + names.map(n => `<option>${esc(n)}</option>`).join("");
-    assigneeSel.value = cur;
-  }
+
 }
 function stagePill(stage){
   const cls = stage === "Won" ? "green" : stage === "Lost" ? "red" : stage === "Replied" ? "amber" : stage === "Requirement" || stage === "Proposal" ? "green" : "grey";
@@ -678,6 +672,26 @@ async function submitLeadForm(e){
     }
     if(!updated.lead_code) ensureLeadCode(updated);
     if(!updated.requirement && updated.notes) updated.requirement = updated.notes;
+     // Preserve existing NULLs when edit fields are left blank.
+const nullableInputs = {
+  company: "f_company",
+  email: "f_email",
+  phone: "f_phone",
+  website: "f_website",
+  assignee: "f_assignee",
+  notes: "f_notes",
+  requirement: "f_requirement",
+  follow_up_date: "f_follow"
+};
+
+for (const [field, id] of Object.entries(nullableInputs)) {
+  if (
+    old[field] === null &&
+    document.getElementById(id).value.trim() === ""
+  ) {
+    updated[field] = null;
+  }
+}
     await saveLeadToBackend(updated);
     await logActivityToBackend(editingId, source, remark || (source + " contact"));
     closeModal("leadModal"); setStatus("Lead saved.");
@@ -799,7 +813,7 @@ async function init(){
   document.getElementById("searchInput").addEventListener("input", renderAll);
   document.getElementById("filterStage").addEventListener("change", renderAll);
   document.getElementById("filterSource").addEventListener("change", renderAll);
-  document.getElementById("filterAssignee").addEventListener("change", renderAll);
+
   document.getElementById("leadForm").addEventListener("submit", submitLeadForm);
   const whoEl = document.getElementById("f_who"); if(whoEl) whoEl.addEventListener("input", updateWhoParsed);
   const nameEl = document.getElementById("f_name"); if(nameEl) nameEl.addEventListener("input", () => { nameManuallyEdited = true; });
