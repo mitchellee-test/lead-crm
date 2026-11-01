@@ -799,3 +799,48 @@ section:not(#dashboardView) > h1::before {
     transform: none;
   }
 }
+
+/* Dashboard pipeline progress bars */
+#stageBreakdown .row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0 20px 20px;
+  border-bottom: 1px solid #e7edf8;
+}
+
+#stageBreakdown .row::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 17px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #3867e8;
+}
+
+#stageBreakdown .row::after {
+  content: "";
+  position: absolute;
+  left: 20px;
+  bottom: 6px;
+  width: var(--stage-fill, 0%);
+  max-width: calc(100% - 20px);
+  height: 5px;
+  border-radius: 20px;
+  background: #3867e8;
+  transition: width 0.5s ease;
+}
+
+#stageBreakdown .row:nth-child(3n+2)::before,
+#stageBreakdown .row:nth-child(3n+2)::after {
+  background: #1faf93;
+}
+
+#stageBreakdown .row:nth-child(3n)::before,
+#stageBreakdown .row:nth-child(3n)::after {
+  background: #f46b80;
+}
+
