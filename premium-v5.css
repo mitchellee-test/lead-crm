@@ -855,3 +855,36 @@ section:not(#dashboardView) > h1::before {
   font-weight: 700 !important;
   text-align: right !important;
 }
+/* COMPACT DASHBOARD LAYOUT */
+
+main.wrap {
+  padding-top: 14px;
+}
+
+/* Slimmer top navigation strip */
+.v3-command {
+  min-height: 36px;
+  padding-bottom: 9px;
+  margin-bottom: 15px;
+}
+
+/* Reduce empty space */
+#statusLine {
+  margin-bottom: 5px;
+}
+
+/* Compact Overview heading */
+#dashboardView > h1 {
+  font-size: clamp(30px, 3vw, 40px);
+  margin-bottom: 18px;
+}
+
+#dashboardView > h1::before {
+  margin-bottom: 7px;
+}
+
+#dashboardView > h1::after {
+  margin-top: 6px;
+  font-size: 13px;
+  line-height: 1.5;
+}
