@@ -180,3 +180,139 @@ th{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.05
     margin-left: auto;
   }
 }
+#dashboardView h1 {
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  color: #0f172a;
+  margin: 8px 0 24px;
+}
+
+#dashboardView .stats {
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+#dashboardView .stat {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(145deg, #ffffff, #fafbff);
+  border: 1px solid #e5eaf2;
+  border-radius: 18px;
+  padding: 22px 18px;
+  box-shadow: 0 4px 20px rgba(15, 23, 42, 0.045);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+#dashboardView .stat:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.09);
+}
+
+#dashboardView .stat::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: #6366f1;
+}
+
+#dashboardView .stat:nth-child(2)::before {
+  background: #0d9488;
+}
+
+#dashboardView .stat:nth-child(3)::before {
+  background: #8b5cf6;
+}
+
+#dashboardView .stat:nth-child(4)::before {
+  background: #16a34a;
+}
+
+#dashboardView .stat:nth-child(5)::before {
+  background: #f59e0b;
+}
+
+#dashboardView .stat:nth-child(6)::before {
+  background: #ef4444;
+}
+
+#dashboardView .stat small {
+  display: block;
+  color: #64748b;
+  font-size: 11px;
+  letter-spacing: 0.07em;
+  line-height: 1.5;
+}
+
+#dashboardView .stat b {
+  display: block;
+  margin-top: 12px;
+  font-size: 32px;
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: -0.04em;
+  color: #0f172a;
+  font-variant-numeric: tabular-nums;
+}
+
+#dashboardView .stat p {
+  margin-top: 10px;
+  color: #94a3b8;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+#dashboardView .grid2 {
+  gap: 20px;
+}
+
+#dashboardView .card {
+  background: #ffffff;
+  border: 1px solid #e5eaf2;
+  border-radius: 18px;
+  padding: 24px;
+  box-shadow: 0 4px 20px rgba(15, 23, 42, 0.04);
+}
+
+#dashboardView .card h3 {
+  font-size: 16px;
+  font-weight: 750;
+  letter-spacing: -0.02em;
+  margin-bottom: 18px;
+}
+
+@media (max-width: 600px) {
+  #dashboardView h1 {
+    font-size: 25px;
+  }
+
+  #dashboardView .stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  #dashboardView .stat {
+    padding: 18px 14px;
+  }
+
+  #dashboardView .stat b {
+    font-size: 27px;
+  }
+
+  #dashboardView .card {
+    padding: 18px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #dashboardView .stat {
+    transition: none;
+  }
+
+  #dashboardView .stat:hover {
+    transform: none;
+  }
+}
