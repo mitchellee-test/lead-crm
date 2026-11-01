@@ -840,4 +840,18 @@ section:not(#dashboardView) > h1::before {
 #stageBreakdown .row:nth-child(3n)::after {
   background: #f46b80;
 }
+/* FIX: REMOVE PIPELINE NUMBER HIGHLIGHT */
 
+#dashboardView #stageBreakdown .row b {
+  background: transparent !important;
+  background-color: transparent !important;
+  color: #203454 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  min-width: 0 !important;
+  font-size: 14px !important;
+  font-weight: 700 !important;
+  text-align: right !important;
+}
