@@ -292,10 +292,7 @@ section:not(#dashboardView) > h1::before {
   box-shadow: 0 0 0 5px #ffebef;
 }
 
-#stageBreakdown .row b {
-  background: #edf3ff;
-  color: #2c4f9a;
-}
+#stageBreakdown .row b { background: #edf3ff; color: #2c4f9a; }
 
 #stageBreakdown .row::before {
   background: var(--momentum-primary);
