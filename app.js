@@ -437,7 +437,17 @@ function renderStats(){
     <div class="stat"><small>Due today</small><b>${dueToday}</b><p>Follow-ups due today</p></div>
     <div class="stat"><small>Overdue</small><b>${overdue}</b><p>Follow-ups past due</p></div>`;
   const stageEl = document.getElementById("stageBreakdown");
-  if(stageEl) stageEl.innerHTML = STAGES.map(s => `<div class="row"><span>${s === "Won" ? "Done / Won" : s}</span><b>${byStage[s]}</b></div>`).join("");
+  if (stageEl) {
+  stageEl.innerHTML = STAGES
+    .filter(s => s !== "Proposal" && s !== "Negotiation")
+    .map(s => `
+      <div class="row">
+        <span>${s === "Won" ? "Done / Won" : s}</span>
+        <b>${byStage[s]}</b>
+      </div>
+    `)
+    .join("");
+}
   const dueEl = document.getElementById("dueList");
   if(dueEl){
     const due = leads.filter(l => l.follow_up_date && l.follow_up_date <= todayISO() && l.stage !== "Won" && l.stage !== "Lost")
