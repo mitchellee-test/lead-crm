@@ -888,3 +888,22 @@ main.wrap {
   font-size: 13px;
   line-height: 1.5;
 }
+#dueList .followup-link {
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid #e7edf8;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+#dueList .followup-link:hover {
+  background: #eef3ff;
+}
+
+#dueList .followup-link:focus-visible {
+  outline: 2px solid #3867e8;
+  outline-offset: 2px;
+}
