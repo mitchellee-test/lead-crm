@@ -452,8 +452,27 @@ function renderStats(){
   if(dueEl){
     const due = leads.filter(l => l.follow_up_date && l.follow_up_date <= todayISO() && l.stage !== "Won" && l.stage !== "Lost")
       .sort((a,b) => (a.follow_up_date||"").localeCompare(b.follow_up_date||"")).slice(0,8);
-    dueEl.innerHTML = due.length ? due.map(l => `<div class="row"><span><b>${esc(l.name)}</b> <span class="muted">(${esc(l.stage)})</span></span><span class="due ${dueClass(l)}">${dueLabel(l)}</span></div>`).join("")
-      : `<p class="muted">Nothing due today or overdue. Nice work.</p>`;
+    dueEl.innerHTML = due.length
+  ? due.map(l => `
+      <button type="button" class="row followup-link"
+        data-lead-id="${esc(l.id)}">
+        <span>
+          <b>${esc(l.name)}</b>
+          <span class="muted">(${esc(l.stage)})</span>
+        </span>
+        <span class="due ${dueClass(l)}">
+          ${esc(dueLabel(l))}
+        </span>
+      </button>
+    `).join("")
+  : `<p class="muted">Nothing due today or overdue. Nice work.</p>`;
+
+dueEl.onclick = event => {
+  const button = event.target.closest(".followup-link");
+  if (button && dueEl.contains(button)) {
+    openDetail(button.dataset.leadId);
+  }
+};
   }
 
 }
