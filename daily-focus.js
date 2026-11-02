@@ -284,15 +284,7 @@
       }
     }
 
-    const hasAppLoaded =
-      if (
-  !autoShown &&
-  hasAppLoaded &&
-  !anotherModal &&
-  !visible
-) {
-  open(true);
-}
+        const hasAppLoaded =
       !!document.querySelector('#stats .stat');
 
     const anotherModal =
@@ -300,14 +292,13 @@
 
     if (
       !autoShown &&
-      !wasSeen() &&
-      tasks.length &&
       hasAppLoaded &&
       !anotherModal &&
       !visible
     ) {
       open(true);
     }
+    
   }
 
   function renderDialog(tasks) {
