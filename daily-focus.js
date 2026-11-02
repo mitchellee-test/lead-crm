@@ -285,6 +285,14 @@
     }
 
     const hasAppLoaded =
+      if (
+  !autoShown &&
+  hasAppLoaded &&
+  !anotherModal &&
+  !visible
+) {
+  open(true);
+}
       !!document.querySelector('#stats .stat');
 
     const anotherModal =
