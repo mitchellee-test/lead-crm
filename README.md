@@ -179,3 +179,47 @@ the CRM reads/writes Supabase. The draft bridge is `google-sheets-sync.gs`
 To wire it up for real, share the Sheet (or its ID) and say which
 direction you want first — Sheet → CRM, CRM → Sheet, or both — and the
 script can be pointed at that Sheet and scheduled.
+
+
+## November 2026: Reliable status changes + compact Leads and Board
+
+**Status reverts after a few minutes:** The previous `google-sheets-sync.gs`
+blindly upserted **all** Sheet rows whenever its trigger ran, even if the row
+was never edited. A stale `Contacted` in the Sheet would overwrite `Replied`
+in Supabase. This release replaces that behavior with a hidden last-synced
+snapshot and a per-field, three-way comparison. The Sheet only sends actual
+changes, while CRM edits win when the same field changed in both places.
+
+**Required deployment steps (do both):**
+
+1. Deploy the updated website files (including `compact.css` and `app.js`) to
+   Vercel in the normal way.
+2. **Separately update the Google Sheets Apps Script.** In the linked Sheet,
+   use Extensions → Apps Script and replace its old code with the updated
+   `google-sheets-sync.gs` from this package. Retain your existing Script
+   Properties. Under Apps Script Triggers, **remove all older sync triggers**,
+   then create just **one** time-driven trigger for `syncBothWays` (e.g. every
+   5 or 15 minutes). Running old and new sync scripts simultaneously can still
+   revert statuses. If your Apps Script is deployed as a web app, redeploy it.
+3. **Once**, run `syncSupabaseToSheet` from Apps Script to initialize the
+   baseline. This treats the current CRM/Supabase values as correct on first
+   run and refreshes the Sheet. Review/backup any unsynced edits in the Sheet
+   before this one-time initialization, as those will be replaced.
+4. Change an existing lead from **Contacted → Replied** in Leads, Board, or
+   the detail dialog. Check it immediately and after the next Sheet trigger.
+   The status must remain Replied both in the CRM and in the Sheet.
+
+The CRM now uses inline status selectors in **Leads** and **Board**, and
+status-only updates avoid replacing other lead fields. The `compact.css`
+stylesheet makes both views denser. The Leads table still scrolls sideways on
+small screens, and the Board scrolls horizontally across the eight stages.
+
+If you are installing from scratch or Supabase reports a missing `website`,
+`lead_code`, or `outcome` column, rerun `schema.sql` in Supabase SQL Editor;
+the new `alter table ... add column if not exists` statements are safe to rerun.
+Existing data is preserved. No SQL migration is needed merely to change an
+existing stage when these columns already exist.
+
+**Permissions:** If an update fails due to Supabase RLS, the CRM now shows an
+error instead of claiming that the status was saved. Check authenticated team
+policies; do not disable security or expose server-side keys in `config.js`.

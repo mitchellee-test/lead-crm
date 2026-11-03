@@ -6,12 +6,10 @@
 <title>Lead CRM — Team Pipeline &amp; Handoff</title>
 <link rel="stylesheet" href="styles.css">
 <link rel="stylesheet" href="premium.css">
-<link rel="stylesheet" href="premium-v2.css">
 <script src="premium-v2.js" defer></script>
-<script src="premium-v3.js" defer></script>
 <script src="daily-focus.js" defer></script>
-<link rel="stylesheet" href="premium-v4.css">
 <link rel="stylesheet" href="premium-v5.css">
+<link rel="stylesheet" href="compact.css">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="config.js"></script>
 <script src="app.js" defer></script>
@@ -43,6 +41,7 @@
 
   <section id="listView" class="hidden">
     <h1>All leads</h1>
+    <p id="listCount" class="view-description" aria-live="polite"></p>
     <div class="toolbar">
       <input id="searchInput" type="search" placeholder="Search name, company, email or phone…">
       <select id="filterStage"></select>
@@ -57,6 +56,7 @@
 
   <section id="boardView" class="hidden">
     <h1>Pipeline board</h1>
+    <p id="boardCount" class="view-description" aria-live="polite"></p>
     <div id="board" class="board"></div>
   </section>
 
@@ -129,7 +129,7 @@
     <div id="moreDetails" class="hidden">
       <div class="fieldgrid">
         <div class="field"><label>Source channel</label><select id="f_source"><option>Email</option><option>WhatsApp</option><option>Call</option><option>LinkedIn</option><option>Upwork</option><option>Marketplace</option></select></div>
-        <div class="field"><label>Full stage</label><select id="f_stage"><option>New</option><option>Contacted</option><option>Replied</option><option>Requirement</option><option>Proposal</option><option>Negotiation</option><option>Won</option><option>Lost</option></select></div>
+        <div class="field"><label>Full stage</label><select id="f_stage" onchange="selectFullStatus(this.value)"><option>New</option><option>Contacted</option><option>Replied</option><option>Requirement</option><option>Proposal</option><option>Negotiation</option><option>Won</option><option>Lost</option></select></div>
         <div class="field"><label>Assignee</label><input id="f_assignee" placeholder="Leave blank unless needed"></div>
         <div class="field"><label>Follow-up date</label><input id="f_follow" type="date"></div>
       </div>

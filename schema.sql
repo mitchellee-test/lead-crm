@@ -24,6 +24,12 @@ create table if not exists public.leads (
   handoff_date timestamptz
 );
 
+-- Older installs may have been created before these fields existed.
+-- Add them idempotently so editing/saving an existing lead does not fail.
+alter table public.leads add column if not exists website text default '';
+alter table public.leads add column if not exists lead_code text default '';
+alter table public.leads add column if not exists outcome text default '';
+
 create table if not exists public.activities (
   id uuid primary key default gen_random_uuid(),
   created_at timestamptz not null default now(),
@@ -56,8 +62,24 @@ create index if not exists activities_lead_idx on public.activities(lead_id);
 -- Realtime: publish both tables so teammates see each other's edits live.
 -- (Supabase Dashboard -> Database -> Replication must also include these
 -- tables; the SQL below covers the publication used by Supabase Realtime.)
-alter publication supabase_realtime add table public.leads;
-alter publication supabase_realtime add table public.activities;
+do $$
+begin
+  if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
+    if not exists (
+      select 1 from pg_publication_tables
+      where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'leads'
+    ) then
+      alter publication supabase_realtime add table public.leads;
+    end if;
+    if not exists (
+      select 1 from pg_publication_tables
+      where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'activities'
+    ) then
+      alter publication supabase_realtime add table public.activities;
+    end if;
+  end if;
+end;
+$$;
 
 -- NOTE ON ACCESS (read before adding real client data):
 -- For a quick team demo, Supabase projects often start with Row Level

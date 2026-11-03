@@ -21,6 +21,10 @@ let activities = [];
 let currentView = "dashboard";
 let editingId = null;
 let detailId = null;
+// Ignore poll/realtime responses that started before a write.
+let activeWrites = 0;
+let dataEpoch = 0;
+const savingStages = new Set();
 
 function todayISO(){
   const d = new Date(); return d.toISOString().slice(0,10);
@@ -192,6 +196,11 @@ function selectQuickStatus(s){
   const st = document.getElementById("f_stage"); if(st) st.value = quickStatusToStage(s);
   const full = document.getElementById("f_status_full"); if(full) full.value = quickStatusToStage(s);
   document.querySelectorAll(".status-btn").forEach(b => b.classList.toggle("active", b.dataset.status === s));
+  syncOutcomeToStatus(quickStatusToStage(s));
+}
+function syncOutcomeToStatus(stage){
+  const out = document.getElementById("f_outcome");
+  if(out) out.value = (stage === "Won" || stage === "Lost") ? stage : "";
 }
 // Full status changer (2026-10-30): the quick chips only cover New /
 // Contacted / Replied / Done / Lost, so a lead that moves on to
@@ -199,6 +208,7 @@ function selectQuickStatus(s){
 // status except the hidden More details stage. This dropdown is the
 // visible, always-on status control in Quick Add / Edit lead.
 function selectFullStatus(s){
+  syncOutcomeToStatus(s);
   const st = document.getElementById("f_stage"); if(st) st.value = s;
   const full = document.getElementById("f_status_full"); if(full) full.value = s;
   // Keep the quick chips in sync where they have a matching option.
@@ -271,49 +281,84 @@ async function autoHandOver(id){
   if(handoffLocked(l)){ alert("Handoff locked: " + l.name + " is " + l.stage + ". Only Replied leads reach the team."); return; }
   const updated = applyAutoHandoff({ ...l, updated_at: new Date().toISOString() });
   if(updated.stage === "Replied") updated.stage = "Replied";
-  await saveLeadToBackend(updated);
+  if(!await saveLeadToBackend(updated)) return;
   await logActivityToBackend(id, "Handoff", "Handed over automatically on reaching " + updated.stage);
   setView("handoff");
 }
+// Update only status-related columns: do not overwrite a teammate's notes,
+// or other recently edited fields with an older cached lead object.
+async function changeLeadStage(leadId, stage){
+  const old = leads.find(l => l.id === leadId);
+  if(!old || !STAGES.includes(stage) || savingStages.has(leadId)) return false;
+  if(old.stage === stage) return true;
+  const updated = applyAutoHandoff({
+    ...old, stage,
+    outcome: stage === "Won" || stage === "Lost" ? stage : "",
+    updated_at: new Date().toISOString()
+  });
+  if(stage === "New" || stage === "Contacted"){
+    updated.handed_over = false;
+    updated.handoff_note = "";
+    updated.handoff_date = null;
+  }
+  const patch = {
+    stage: updated.stage, outcome: updated.outcome,
+    handed_over: updated.handed_over, handoff_note: updated.handoff_note,
+    handoff_date: updated.handoff_date,
+    requirement: updated.requirement
+  };
+  savingStages.add(leadId);
+  dataEpoch++;
+  activeWrites++;
+  leads = leads.map(l => l.id === leadId ? updated : l);
+  renderAll();
+  let success = false;
+  try{
+    if(mode === "supabase"){
+      const { data, error } = await supabaseClient.from("leads")
+        .update(patch).eq("id", leadId).select("*").single();
+      if(error) throw error;
+      if(!data || data.stage !== stage) throw new Error("The server did not confirm this status change.");
+      leads = leads.map(l => l.id === leadId ? data : l);
+    }else{
+      saveDemo();
+    }
+    success = true;
+    setStatus("Saved: " + old.name + " → " + displayStage(stage));
+  }catch(error){
+    leads = leads.map(l => l.id === leadId ? old : l);
+    setStatus("Status was not saved: " + error.message);
+    alert("Could not change status: " + error.message);
+  }finally{
+    savingStages.delete(leadId);
+    activeWrites--;
+    if(mode === "supabase" && !activeWrites) await loadFromSupabase();
+    else renderAll();
+  }
+  return success;
+}
 async function markDone(leadId){
-  const l = leads.find(x => x.id === leadId); if(!l) return;
-  const updated = { ...l, stage: "Won", outcome: "Won", updated_at: new Date().toISOString() };
-  if(!updated.lead_code) ensureLeadCode(updated);
-  await saveLeadToBackend(updated);
-  await logActivityToBackend(leadId, "Note", "Marked Done");
+  if(await changeLeadStage(leadId, "Won"))
+    await logActivityToBackend(leadId, "Note", "Marked Done");
 }
 async function saveDetailOutcome(){
-  const l = leads.find(x => x.id === detailId); if(!l) return;
-  const sel = document.getElementById("detailOutcome"); if(!sel) return;
+  const sel = document.getElementById("detailOutcome"); if(!sel || !detailId) return;
   const outcome = sel.value;
-  if(outcome !== "Won" && outcome !== "Lost"){ alert("Choose Won or Lost to set an outcome."); return; }
-  const updated = { ...l, stage: outcome, outcome, updated_at: new Date().toISOString() };
-  if(!updated.lead_code) ensureLeadCode(updated);
-  await saveLeadToBackend(updated);
-  openDetail(detailId);
-}
-// Easy status changer in lead detail (2026-10-30): pick any full stage
-// — Contacted → Replied → Requirement → Proposal → Negotiation → Won/Lost
-// — and Save status. Moving to Replied or later puts the lead in the
-// team queue automatically via applyAutoHandoff; Won/Lost also set outcome.
-// Moving back to New/Contacted clears the team-queue flag, otherwise a
-// lead reverted from Replied would stay stuck in both Team queue and
-// Locked out at the same time (found in live test 2026-10-30).
-async function saveDetailStage(){
-  const l = leads.find(x => x.id === detailId); if(!l) return;
-  const sel = document.getElementById("detailStage"); if(!sel) return;
-  const stage = sel.value; if(!stage) return;
-  let updated = { ...l, stage, updated_at: new Date().toISOString() };
-  if(stage === "Won" || stage === "Lost") updated.outcome = stage;
-  else if(l.outcome === "Won" || l.outcome === "Lost") updated.outcome = "";
-  if(!updated.lead_code) ensureLeadCode(updated);
-  updated = applyAutoHandoff(updated);
-  if(stage === "New" || stage === "Contacted"){
-    updated.handed_over = false; updated.handoff_note = ""; updated.handoff_date = null;
+  if(outcome !== "Won" && outcome !== "Lost"){
+    alert("Choose Won or Lost to set an outcome."); return;
   }
-  await saveLeadToBackend(updated);
-  await logActivityToBackend(detailId, "Note", "Status changed to " + (stage === "Won" ? "Done / Won" : stage));
-  openDetail(detailId);
+  if(await changeLeadStage(detailId, outcome)) openDetail(detailId);
+}
+async function saveDetailStage(){
+  const sel = document.getElementById("detailStage"); if(!sel || !detailId) return;
+  const stage = sel.value;
+  const prior = leads.find(x => x.id === detailId);
+  if(!prior) return;
+  if(await changeLeadStage(detailId, stage)){
+    if(prior.stage !== stage)
+      await logActivityToBackend(detailId, "Note", "Status changed to " + displayStage(stage));
+    openDetail(detailId);
+  }
 }
 async function markDoneFromDetail(){ const id = detailId; closeModal("detailModal"); if(id) await markDone(id); }
 
@@ -359,27 +404,47 @@ function loadDemo(){
 }
 
 async function loadFromSupabase(){
-  const { data, error } = await supabaseClient.from("leads").select("*").order("updated_at", { ascending:false });
+  if(activeWrites) return;
+  const requestEpoch = dataEpoch;
+  const { data, error } = await supabaseClient.from("leads")
+    .select("*").order("updated_at", { ascending:false });
+  if(activeWrites || requestEpoch !== dataEpoch) return;
   if(error){ console.error(error); setStatus("Supabase error: " + error.message); return; }
+  const { data: acts, error: actError } = await supabaseClient.from("activities")
+    .select("*").order("created_at", { ascending:false }).limit(500);
+  if(activeWrites || requestEpoch !== dataEpoch) return;
+  if(actError) console.error("Could not refresh activities:", actError);
   leads = data || [];
-  const { data: acts } = await supabaseClient.from("activities").select("*").order("created_at", { ascending:false }).limit(500);
-  activities = acts || [];
+  if(!actError) activities = acts || [];
   renderAll();
 }
 async function refresh(){
-  if(mode === "supabase") await loadFromSupabase(); else { loadDemo(); renderAll(); }
+  if(mode === "supabase") await loadFromSupabase();
+  else { loadDemo(); renderAll(); }
 }
 function setStatus(msg){
   const el = document.getElementById("statusLine");
   if(el) el.textContent = msg;
 }
-
 async function saveLeadToBackend(lead){
   if(mode === "supabase"){
-    const { error } = await supabaseClient.from("leads").upsert(lead);
-    if(error) alert("Could not save to Supabase: " + error.message);
-    else await loadFromSupabase();
-  } else { saveDemo(); renderAll(); }
+    activeWrites++;
+    dataEpoch++;
+    let success = false;
+    try{
+      const { error } = await supabaseClient.from("leads").upsert(lead);
+      if(error) throw error;
+      success = true;
+    }catch(error){
+      setStatus("Could not save lead: " + error.message);
+      alert("Could not save to Supabase: " + error.message);
+    }finally{
+      activeWrites--;
+      if(!activeWrites) await loadFromSupabase();
+    }
+    return success;
+  }
+  saveDemo(); renderAll(); return true;
 }
 async function deleteLeadFromBackend(id){
   if(mode === "supabase"){
@@ -480,45 +545,54 @@ function stagePill(stage){
   const cls = stage === "Won" ? "green" : stage === "Lost" ? "red" : stage === "Replied" ? "amber" : stage === "Requirement" || stage === "Proposal" ? "green" : "grey";
   return `<span class="pill ${cls}">${esc(displayStage(stage))}</span>`;
 }
+function stageSelect(l, variant){
+  return `<select class="inline-stage ${variant || ""}" aria-label="Change status for ${esc(l.name)}"
+    data-lead-id="${esc(l.id)}" onclick="event.stopPropagation()"
+    onchange="event.stopPropagation(); changeLeadStage(this.dataset.leadId, this.value)"
+    ${savingStages.has(l.id) ? "disabled" : ""}>
+    ${STAGES.map(stage => `<option value="${stage}" ${l.stage === stage ? "selected" : ""}>${esc(displayStage(stage))}</option>`).join("")}
+  </select>`;
+}
 function leadRow(l){
   const last = lastActivityFor(l.id);
-  const remark = (l.notes || "").length > 60 ? (l.notes || "").slice(0, 60) + "…" : (l.notes || "—");
-  const web = l.website ? `<div><a class="website-link" href="${esc(l.website)}" target="_blank" rel="noopener">${esc(websiteDisplay(l.website))}</a></div>` : "";
+  const remark = (l.notes || "").length > 55 ? (l.notes || "").slice(0, 55) + "…" : (l.notes || "—");
+  const contact = [l.email, l.phone].filter(Boolean);
   return `<tr>
-    <td><div class="lead-name"><span class="lead-code">${esc(displayLeadCode(l))}</span> · ${esc(l.name)}</div><div class="muted">${esc(l.company)}</div></td>
-    <td><div>${esc(l.email)}</div><div class="muted">${esc(l.phone)}</div>${web}</td>
+    <td><div class="lead-name">${esc(l.name)}</div><div class="lead-sub"><span class="lead-code">${esc(displayLeadCode(l))}</span>${l.company ? " · " + esc(l.company) : ""}</div></td>
+    <td class="contact-cell">${contact.map(c => `<div>${esc(c)}</div>`).join("") || "—"}${l.website ? `<a class="website-link" href="${esc(l.website)}" target="_blank" rel="noopener">${esc(websiteDisplay(l.website))}</a>` : ""}</td>
     <td>${last ? esc(last.channel) : esc(l.source || "—")}</td>
-    <td class="remark-cell">${esc(remark)}</td>
-    <td>${stagePill(l.stage)}</td>
-    <td>
-      <button class="btn small secondary" onclick="openDetail('${l.id}')">Open</button>
-      <button class="btn small secondary" onclick="openDetail('${l.id}')">Log</button>
-      ${l.stage !== "Won" && l.stage !== "Lost" ? `<button class="btn small" onclick="markDone('${l.id}')">Mark Done</button>` : ""}
-      ${l.handed_over ? `<span class="pill green">In team queue</span>` : ""}
-    </td></tr>`;
+    <td class="remark-cell" title="${esc(l.notes || "")}">${esc(remark)}</td>
+    <td>${stageSelect(l,"list-stage")}</td>
+    <td class="row-actions"><button class="btn small secondary" onclick="openDetail('${esc(l.id)}')">Open</button>${l.handed_over ? `<span class="queue-indicator" title="In team queue">● Team</span>` : ""}</td>
+  </tr>`;
 }
 function renderList(){
   const el = document.getElementById("listBody");
   if(!el) return;
   const rows = getFiltered();
   el.innerHTML = rows.length ? rows.map(leadRow).join("") : `<tr><td colspan="6"><div class="empty">No leads match these filters. Try clearing the search or add a new lead.</div></td></tr>`;
+  const count = document.getElementById("listCount");
+  if(count) count.textContent = `${rows.length} of ${leads.length} leads`;
 }
 function renderBoard(){
   const el = document.getElementById("board");
   if(!el) return;
   const filtered = getFiltered();
-  const groups = ["New","Contacted","Replied","Requirement","Proposal","Negotiation","Won","Lost"];
-  el.innerHTML = groups.map(stage => {
+  el.innerHTML = STAGES.map(stage => {
     const items = filtered.filter(l => l.stage === stage);
     return `<div class="col"><h4>${esc(displayStage(stage))} <span>${items.length}</span></h4>` +
-      (items.map(l => { const last = lastActivityFor(l.id); const remark = (l.notes || "").length > 60 ? (l.notes || "").slice(0, 60) + "…" : (l.notes || ""); return `<div class="leadcard" onclick="openDetail('${l.id}')">
-        <h5><span class="lead-code">${esc(displayLeadCode(l))}</span> · ${esc(l.name)}</h5><p>${esc(l.company)}</p>
-        ${l.website ? `<p><a class="website-link" href="${esc(l.website)}" target="_blank" rel="noopener">${esc(websiteDisplay(l.website))}</a></p>` : ""}
-        ${remark ? `<p>${esc(remark)}</p>` : ""}
-        <p class="muted">${last ? esc(last.channel) : esc(l.source || "—")}</p>
-        ${handoffLocked(l) ? `<div class="lock">🔒 ${handoffLockReason(l)}</div>` : ""}
-      </div>`; }).join("") || `<p class="muted">No leads</p>`) + `</div>`;
+      (items.map(l => {
+        const remark = (l.notes || "").length > 75 ? l.notes.slice(0,75) + "…" : (l.notes || "");
+        return `<div class="leadcard" onclick="openDetail('${esc(l.id)}')">
+          <div class="card-lead-name">${esc(l.name)}</div>
+          <div class="card-meta"><span class="lead-code">${esc(displayLeadCode(l))}</span>${l.company ? " · " + esc(l.company) : ""}</div>
+          ${remark ? `<div class="card-remark" title="${esc(l.notes || "")}">${esc(remark)}</div>` : ""}
+          <div class="card-foot">${stageSelect(l,"board-stage")}<span class="card-source">${esc(l.source || "—")}</span></div>
+        </div>`;
+      }).join("") || `<p class="empty-stage">No leads</p>`) + `</div>`;
   }).join("");
+  const count = document.getElementById("boardCount");
+  if(count) count.textContent = `${filtered.length} leads across ${STAGES.length} stages`;
 }
 function renderHandoff(){
   const ready = leads.filter(l => l.stage === "Replied" && !l.handed_over);
@@ -571,6 +645,7 @@ function saveQuickDraft(){
     const d = {};
     ["f_who","f_name","f_company","f_website","f_notes","f_requirement"].forEach(id => { const el = document.getElementById(id); if(el) d[id] = el.value; });
     d.quickChannel = quickChannel; d.quickStatus = quickStatus;
+    d.fullStage = document.getElementById("f_status_full").value;
     const outEl = document.getElementById("f_outcome"); if(outEl) d.f_outcome = outEl.value;
     if(d.f_who || d.f_name || d.f_notes) localStorage.setItem(DRAFT_KEY, JSON.stringify(d));
   }catch(e){}
@@ -583,6 +658,7 @@ function restoreQuickDraft(){
     Object.keys(d).forEach(id => { const el = document.getElementById(id); if(el && d[id] !== undefined) el.value = d[id]; });
     if(d.quickChannel) selectChannel(d.quickChannel);
     if(d.quickStatus) selectQuickStatus(d.quickStatus);
+    if(d.fullStage) selectFullStatus(d.fullStage);
     if(d.f_name) nameManuallyEdited = true;
     if(d.f_company) companyManuallyEdited = true;
     if(d.f_website) websiteManuallyEdited = true;
@@ -642,6 +718,7 @@ function openEditLead(){
   nameManuallyEdited = true; companyManuallyEdited = true; websiteManuallyEdited = true;
   selectChannel(l.source || "Email"); selectQuickStatus(stageToQuickStatus(l.stage || "New"));
   const full = document.getElementById("f_status_full"); if(full) full.value = l.stage || "New";
+  if(outEl) outEl.value = outcomeFromLead(l);
   updateWhoParsed();
   document.getElementById("deleteLeadBtn").classList.remove("hidden");
   closeModal("detailModal"); openModal("leadModal");
@@ -667,11 +744,12 @@ async function submitLeadForm(e){
   // Visible full-status dropdown (always shown, not only in More details)
   // wins over the quick chips when it was used to pick a stage.
   const fullEl = document.getElementById("f_status_full");
-  if(fullEl && fullEl.value && fullEl.value !== quickStatusToStage(quickStatus)) stage = fullEl.value;
+  if(fullEl && fullEl.value) stage = fullEl.value;
   const outcomeEl = document.getElementById("f_outcome");
-  const outcome = outcomeEl ? outcomeEl.value : "";
+  let outcome = outcomeEl ? outcomeEl.value : "";
   // Outcome dropdown overrides Status / full stage when Won or Lost is chosen.
   if(outcome === "Won" || outcome === "Lost") stage = outcome;
+  else outcome = stage === "Won" || stage === "Lost" ? stage : "";
   const remark = document.getElementById("f_notes").value.trim();
   const website = normalizeWebsite(document.getElementById("f_website").value.trim() || websiteFromEmail(email));
   let data = {
@@ -711,7 +789,7 @@ for (const [field, id] of Object.entries(nullableInputs)) {
     updated[field] = null;
   }
 }
-    await saveLeadToBackend(updated);
+    if(!await saveLeadToBackend(updated)) return;
     await logActivityToBackend(editingId, source, remark || (source + " contact"));
     closeModal("leadModal"); setStatus("Lead saved.");
     return;
@@ -727,7 +805,7 @@ for (const [field, id] of Object.entries(nullableInputs)) {
     if(!updated.lead_code) ensureLeadCode(updated);
     updated.follow_up_date = autoFollowUp(updated.stage, updated.follow_up_date);
     updated = applyAutoHandoff({ ...updated, updated_at: new Date().toISOString() });
-    await saveLeadToBackend(updated);
+    if(!await saveLeadToBackend(updated)) return;
     await logActivityToBackend(dup.id, source, remark || (source + " contact"));
     const savedEl = document.getElementById("quickSaved");
     savedEl.textContent = "Already in the system — updated " + (dup.name || dup.email || dup.phone) + " instead of creating a duplicate.";
@@ -741,7 +819,7 @@ for (const [field, id] of Object.entries(nullableInputs)) {
   if(lead.handed_over){ lead.handoff_note = remark; lead.handoff_date = new Date().toISOString(); if(!lead.requirement) lead.requirement = remark; }
   let savedId = null;
   if(mode === "supabase"){
-    await saveLeadToBackend(lead);
+    if(!await saveLeadToBackend(lead)) return;
     // saveLeadToBackend reloads from Supabase; find the just-saved lead by email/phone
     const found = findDuplicate(email, phone);
     savedId = found ? found.id : null;
@@ -779,7 +857,7 @@ function openDetail(id){
     <p><b>Notes:</b> ${esc(l.notes || "—")}</p>
     <div class="fieldgrid"><div class="field"><label>Status — change anytime</label><select id="detailStage">${STAGES.map(s => `<option value="${s}" ${l.stage === s ? "selected" : ""}>${s === "Won" ? "Done / Won" : s}</option>`).join("")}</select></div>
     <div class="field"><label>Outcome</label><select id="detailOutcome"><option value="">— No outcome yet —</option><option value="Won" ${outcomeFromLead(l) === "Won" ? "selected" : ""}>Won</option><option value="Lost" ${outcomeFromLead(l) === "Lost" ? "selected" : ""}>Lost</option></select></div></div>
-    <button class="btn small" onclick="saveDetailStage()">Save status</button>
+    <button class="btn small" onclick="saveDetailStage()" ${savingStages.has(l.id) ? "disabled" : ""}>Save status</button>
     <button class="btn small secondary" onclick="saveDetailOutcome()">Save outcome</button>
     <p class="muted">Status goes Contacted → Replied → Requirement → Proposal → Negotiation → Done/Won or Lost. Replied or later goes to the team queue automatically.</p>
     ${l.handed_over ? `<p><span class="pill green">In team queue</span></p>` : ""}
@@ -817,7 +895,7 @@ async function submitHandoff(e){
     requirement: document.getElementById("h_note").value.trim() || l.requirement || "",
     handed_over: true, handoff_note: document.getElementById("h_note").value.trim(),
     handoff_date: new Date().toISOString(), stage: "Requirement", updated_at: new Date().toISOString() };
-  await saveLeadToBackend(updated);
+  if(!await saveLeadToBackend(updated)) return;
   await logActivityToBackend(detailId, "Handoff", "Handed over to " + updated.assignee + ": " + updated.requirement);
   closeModal("handoffModal"); setView("handoff"); setStatus("Handed over: " + l.name + " is now in the team queue.");
 }

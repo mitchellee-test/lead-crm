@@ -1,0 +1,99 @@
+/* Denser Leads + Board views; intentionally limited to those pages. */
+#listView, #boardView { --dense-border: #e9eef7; }
+#listView > h1, #boardView > h1 {
+  margin: 0 0 9px;
+  font-size: clamp(22px, 1.8vw, 27px);
+  letter-spacing: -.04em;
+}
+#listView .view-description, #boardView .view-description {
+  margin: 0 0 12px;
+  font-size: 12px;
+  color: #71809b;
+}
+#listView .toolbar { gap: 8px; margin-bottom: 10px; }
+#listView .toolbar input, #listView .toolbar select {
+  min-height: 34px; padding: 7px 10px; border-radius: 9px; font-size: 12px;
+}
+#listView .tablewrap { border-radius: 13px; }
+#listView table { min-width: 755px; table-layout: fixed; }
+#listView th, #listView td {
+  padding: 7px 10px; border-bottom: 1px solid var(--dense-border);
+  font-size: 12px; line-height: 1.35; vertical-align: middle;
+}
+#listView th { padding: 9px 10px; font-size: 10px; letter-spacing: .055em; }
+#listView th:nth-child(1) { width: 19%; }
+#listView th:nth-child(2) { width: 23%; }
+#listView th:nth-child(3) { width: 12%; }
+#listView th:nth-child(4) { width: 23%; }
+#listView th:nth-child(5) { width: 12%; }
+#listView th:nth-child(6) { width: 11%; }
+#listView .lead-name { font-size: 12px; line-height: 1.3; }
+#listView .lead-sub { color: #8b96ac; font-size: 11px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#listView .lead-code { font-size: 10px; }
+#listView .contact-cell { overflow: hidden; overflow-wrap: anywhere; }
+#listView .contact-cell > div:not(:first-child), #listView .contact-cell a { color: #8793a9; font-size: 11px; }
+#listView .remark-cell { max-width: none; color: #66748d; }
+#listView .row-actions { white-space: nowrap; }
+#listView .row-actions .btn { padding: 5px 8px; border-radius: 7px; font-size: 11px; }
+#listView .queue-indicator { display: inline-block; font-size: 10px; margin-left: 5px; color: #16876c; }
+.inline-stage {
+  max-width: 100%; min-width: 95px; width: 100%;
+  background: #eff4ff; border: 1px solid #d9e4ff; border-radius: 8px;
+  color: #2b4e9d; padding: 5px 6px; font-size: 11px; font-weight: 700;
+  cursor: pointer; line-height: 1.2;
+}
+.inline-stage:focus-visible { outline: 2px solid #6a90ec; outline-offset: 1px; }
+.inline-stage:disabled { opacity: .65; cursor: progress; }
+#boardView .board {
+  display: grid; grid-template-columns: repeat(8, minmax(185px, 1fr));
+  gap: 8px; overflow-x: auto; align-items: start; padding-bottom: 12px;
+}
+#boardView .col {
+  min-width: 185px; padding: 8px; border-radius: 12px;
+  border-color: #e0e8f6;
+}
+#boardView .col h4 {
+  margin: 1px 3px 9px; font-size: 12px; font-weight: 800;
+  letter-spacing: 0; gap: 4px;
+}
+#boardView .col h4 span { border-radius: 6px; font-size: 10px; min-width: 22px; padding: 2px 5px; }
+#boardView .leadcard {
+  margin-bottom: 6px; padding: 10px 9px 8px 11px; border-radius: 9px;
+  border-color: #e7ebf4; box-shadow: none;
+}
+#boardView .leadcard::before { width: 3px; border-radius: 2px 0 0 2px; }
+#boardView .leadcard:hover { transform: none; box-shadow: 0 2px 9px rgba(36,65,120,.10); }
+#boardView .card-lead-name {
+  font-size: 12px; font-weight: 800; line-height: 1.35;
+  overflow-wrap: anywhere; color: #273b65;
+}
+#boardView .card-meta {
+  font-size: 10px; line-height: 1.3; margin-top: 3px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #8090ab;
+}
+#boardView .card-meta .lead-code { font-size: 10px; }
+#boardView .card-remark {
+  margin-top: 5px; font-size: 10px; color: #687996;
+  line-height: 1.35; display: -webkit-box; -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2; overflow: hidden;
+}
+#boardView .card-foot {
+  display: flex; gap: 5px; align-items: center; justify-content: space-between;
+  margin-top: 7px;
+}
+#boardView .board-stage { flex: 1; width: 100%; min-width: 0; padding: 4px; font-size: 10px; }
+#boardView .card-source {
+  font-size: 9px; color: #8b95a8; overflow: hidden;
+  max-width: 56px; text-overflow: ellipsis; white-space: nowrap;
+}
+#boardView .empty-stage { font-size: 11px; color: #9ba6b8; text-align: center; margin: 12px 0; }
+@media (max-width: 1050px) {
+  #listView .tablewrap { overflow-x: auto; }
+  #boardView .board { grid-template-columns: repeat(8, minmax(178px, 1fr)); }
+}
+@media (max-width: 720px) {
+  #listView .tablewrap { border-radius: 10px; }
+  #listView th, #listView td { padding: 7px 8px; }
+  #boardView .board { grid-template-columns: repeat(8, minmax(165px, 1fr)); }
+  #boardView .col { min-width: 165px; }
+}
