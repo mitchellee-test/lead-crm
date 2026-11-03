@@ -97,3 +97,49 @@
   #boardView .board { grid-template-columns: repeat(8, minmax(165px, 1fr)); }
   #boardView .col { min-width: 165px; }
 }
+
+/* LEADS PAGE - LARGER TEXT */
+#listView th,
+#listView td {
+  font-size: 13px;
+}
+
+#listView th {
+  font-size: 11px;
+}
+
+#listView .lead-name {
+  font-size: 14px;
+}
+
+#listView .lead-sub,
+#listView .contact-cell a,
+#listView .contact-cell > div:not(:first-child),
+#listView .row-actions .btn,
+#listView .inline-stage {
+  font-size: 12px;
+}
+
+#listView .lead-code {
+  font-size: 11px;
+}
+
+/* BOARD PAGE - LARGER TEXT */
+#boardView .col h4 {
+  font-size: 13px;
+}
+
+#boardView .card-lead-name {
+  font-size: 14px;
+}
+
+#boardView .card-meta,
+#boardView .card-remark,
+#boardView .card-meta .lead-code,
+#boardView .board-stage {
+  font-size: 12px;
+}
+
+#boardView .card-source {
+  font-size: 11px;
+}
