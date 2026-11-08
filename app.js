@@ -73,6 +73,8 @@ let addedTodayCount = 0;
 let nameManuallyEdited = false;
 let companyManuallyEdited = false;
 let websiteManuallyEdited = false;
+let emailManuallyEdited = false;
+let phoneManuallyEdited = false;
 // Website / lead_code / outcome (2026-10-30):
 // - website: visible field, auto-filled from email domain, never overwrites
 //   a manually typed website.
@@ -175,12 +177,16 @@ function updateWhoParsed(){
   const nameEl = document.getElementById("f_name"), compEl = document.getElementById("f_company");
   if(p.name && nameEl && !nameManuallyEdited) nameEl.value = p.name;
   if(p.company && compEl && !companyManuallyEdited) compEl.value = p.company;
-  if(p.email) document.getElementById("f_email").value = p.email;
-  if(p.phone) document.getElementById("f_phone").value = p.phone;
-  // Auto-fill website from the email domain, unless the user typed one manually.
+  // The Who field is a shortcut, never a replacement for explicitly
+  // edited contact details. Existing lead contact values are manual too.
+  const emailEl = document.getElementById("f_email");
+  const phoneEl = document.getElementById("f_phone");
+  if(p.email && emailEl && !emailManuallyEdited) emailEl.value = p.email;
+  if(p.phone && phoneEl && !phoneManuallyEdited) phoneEl.value = p.phone;
+  // Website can also come from an email typed directly into Email.
   const webEl = document.getElementById("f_website");
   if(webEl && !websiteManuallyEdited){
-    const auto = websiteFromEmail(p.email);
+    const auto = websiteFromEmail(emailEl.value);
     if(auto) webEl.value = auto;
   }
   const out = document.getElementById("whoParsed");
@@ -238,7 +244,7 @@ function autoFollowUp(stage, existing){
   if(existing) return existing;
   return (stage === "Contacted" || stage === "Replied") ? plusDaysISO(3) : null;
 }
-function applyAutoHandoff(lead){
+function applyAutoHandoff(lead, populateRequirement = true){
   // 100 -> 5 rule, automated: Replied through Negotiation reach the team
   // queue without a manual handoff form. Lost is never handed over; Done
   // (Won) keeps any prior handoff state instead of forcing a new one.
@@ -246,7 +252,7 @@ function applyAutoHandoff(lead){
     lead.handed_over = true;
     if(!lead.handoff_note) lead.handoff_note = lead.notes || "";
     if(!lead.handoff_date) lead.handoff_date = new Date().toISOString();
-    if(!lead.requirement && lead.notes) lead.requirement = lead.notes;
+    if(populateRequirement && !lead.requirement && lead.notes) lead.requirement = lead.notes;
   }
   return lead;
 }
@@ -446,6 +452,38 @@ async function saveLeadToBackend(lead){
   }
   saveDemo(); renderAll(); return true;
 }
+// Editing an existing lead must UPDATE that exact row, not upsert an
+// entire cached object. Otherwise an edit can appear to succeed while a
+// missing/changed row is silently reinserted, or teammate changes vanish.
+async function saveExistingLead(id, patch){
+  activeWrites++;
+  dataEpoch++;
+  let success = false;
+  try{
+    if(mode === "supabase"){
+      const { data, error } = await supabaseClient.from("leads")
+        .update(patch).eq("id", id).select("*").single();
+      if(error) throw error;
+      if(!data || data.id !== id) throw new Error("The server did not confirm the edit.");
+      leads = leads.map(l => l.id === id ? data : l);
+    }else{
+      if(!leads.some(l => l.id === id)) throw new Error("Lead not found.");
+      leads = leads.map(l => l.id === id ? { ...l, ...patch, updated_at: new Date().toISOString() } : l);
+      saveDemo();
+    }
+    success = true;
+  }catch(error){
+    const msg = "Could not save changes: " + error.message;
+    setStatus(msg);
+    alert(msg);
+  }finally{
+    activeWrites--;
+    if(mode === "supabase" && !activeWrites) await loadFromSupabase();
+    else renderAll();
+  }
+  return success;
+}
+
 async function deleteLeadFromBackend(id){
   if(mode === "supabase"){
     await supabaseClient.from("activities").delete().eq("lead_id", id);
@@ -563,7 +601,7 @@ function leadRow(l){
     <td>${last ? esc(last.channel) : esc(l.source || "—")}</td>
     <td class="remark-cell" title="${esc(l.notes || "")}">${esc(remark)}</td>
     <td>${stageSelect(l,"list-stage")}</td>
-    <td class="row-actions"><button class="btn small secondary" onclick="openDetail('${esc(l.id)}')">Open</button>${l.handed_over ? `<span class="queue-indicator" title="In team queue">● Team</span>` : ""}</td>
+    <td class="row-actions"><button type="button" class="btn small" onclick="openEditLead('${esc(l.id)}')">Edit</button> <button type="button" class="btn small secondary" onclick="openDetail('${esc(l.id)}')">View</button>${l.handed_over ? `<span class="queue-indicator" title="In team queue">● Team</span>` : ""}</td>
   </tr>`;
 }
 function renderList(){
@@ -588,6 +626,7 @@ function renderBoard(){
           <div class="card-meta"><span class="lead-code">${esc(displayLeadCode(l))}</span>${l.company ? " · " + esc(l.company) : ""}</div>
           ${remark ? `<div class="card-remark" title="${esc(l.notes || "")}">${esc(remark)}</div>` : ""}
           <div class="card-foot">${stageSelect(l,"board-stage")}<span class="card-source">${esc(l.source || "—")}</span></div>
+          <button type="button" class="btn small secondary board-edit" onclick="event.stopPropagation(); openEditLead('${esc(l.id)}')">Edit details</button>
         </div>`;
       }).join("") || `<p class="empty-stage">No leads</p>`) + `</div>`;
   }).join("");
@@ -643,11 +682,13 @@ function saveQuickDraft(){
   if(editingId) return;
   try{
     const d = {};
-    ["f_who","f_name","f_company","f_website","f_notes","f_requirement"].forEach(id => { const el = document.getElementById(id); if(el) d[id] = el.value; });
+    ["f_who","f_name","f_company","f_email","f_phone","f_website","f_notes","f_requirement"].forEach(id => { const el = document.getElementById(id); if(el) d[id] = el.value; });
+    d.emailManuallyEdited = emailManuallyEdited;
+    d.phoneManuallyEdited = phoneManuallyEdited;
     d.quickChannel = quickChannel; d.quickStatus = quickStatus;
     d.fullStage = document.getElementById("f_status_full").value;
     const outEl = document.getElementById("f_outcome"); if(outEl) d.f_outcome = outEl.value;
-    if(d.f_who || d.f_name || d.f_notes) localStorage.setItem(DRAFT_KEY, JSON.stringify(d));
+    if(d.f_who || d.f_name || d.f_email || d.f_phone || d.f_notes) localStorage.setItem(DRAFT_KEY, JSON.stringify(d));
   }catch(e){}
 }
 function clearQuickDraft(){ try{ localStorage.removeItem(DRAFT_KEY); }catch(e){} }
@@ -662,14 +703,22 @@ function restoreQuickDraft(){
     if(d.f_name) nameManuallyEdited = true;
     if(d.f_company) companyManuallyEdited = true;
     if(d.f_website) websiteManuallyEdited = true;
+    emailManuallyEdited = Boolean(d.emailManuallyEdited);
+    phoneManuallyEdited = Boolean(d.phoneManuallyEdited);
     updateWhoParsed();
     return true;
   }catch(e){ return false; }
 }
-function cancelLeadForm(){ clearQuickDraft(); closeModal("leadModal"); }
+function cancelLeadForm(){
+  // Canceling an edit should not discard a separate, unsaved Quick Add draft.
+  if(!editingId) clearQuickDraft();
+  closeModal("leadModal");
+  editingId = null;
+}
 function resetQuickForm(){
   quickChannel = "Email"; quickStatus = "Contacted";
   nameManuallyEdited = false; companyManuallyEdited = false; websiteManuallyEdited = false;
+  emailManuallyEdited = false; phoneManuallyEdited = false;
   document.getElementById("f_who").value = "";
   ["f_name","f_company","f_website","f_email","f_phone","f_assignee","f_follow","f_notes","f_requirement"].forEach(id => { const el = document.getElementById(id); if(el) el.value = ""; });
   const outEl = document.getElementById("f_outcome"); if(outEl) outEl.value = "";
@@ -682,6 +731,7 @@ function resetQuickForm(){
 function openAddLead(){
   editingId = null;
   document.getElementById("leadFormTitle").textContent = "Quick add lead";
+  document.getElementById("saveLeadBtn").textContent = "Save lead";
   resetQuickForm();
   const hadDraft = restoreQuickDraft();
   document.getElementById("quickSaved").classList.add("hidden");
@@ -695,10 +745,15 @@ function openAddLead(){
   openModal("leadModal");
   setTimeout(() => document.getElementById("f_who").focus(), 50);
 }
-function openEditLead(){
-  const l = leads.find(x => x.id === detailId); if(!l) return;
+function openEditLead(id){
+  // Accept a lead ID from the Leads table or Board; the detail dialog
+  // can still call this without an argument.
+  const l = leads.find(x => x.id === (id || detailId)); if(!l) return;
+  detailId = l.id;
   editingId = l.id;
+  resetQuickForm();
   document.getElementById("leadFormTitle").textContent = "Edit lead";
+  document.getElementById("saveLeadBtn").textContent = "Save changes";
   document.getElementById("f_who").value = l.name || l.email || l.phone || "";
   document.getElementById("f_name").value = l.name || "";
   document.getElementById("f_company").value = l.company || "";
@@ -716,24 +771,27 @@ function openEditLead(){
   // Editing: loaded values are the user's/manual values, so Who must not
   // overwrite them while typing in Who.
   nameManuallyEdited = true; companyManuallyEdited = true; websiteManuallyEdited = true;
+  emailManuallyEdited = true; phoneManuallyEdited = true;
   selectChannel(l.source || "Email"); selectQuickStatus(stageToQuickStatus(l.stage || "New"));
   const full = document.getElementById("f_status_full"); if(full) full.value = l.stage || "New";
   if(outEl) outEl.value = outcomeFromLead(l);
   updateWhoParsed();
   document.getElementById("deleteLeadBtn").classList.remove("hidden");
   closeModal("detailModal"); openModal("leadModal");
+  document.getElementById("f_name").focus();
 }
 async function submitLeadForm(e){
   e.preventDefault();
   updateWhoParsed();
   const parsed = parseWho(document.getElementById("f_who").value);
-  // If Name was only auto-filled (not manually edited), trust the full
-  // parsed Who value over any stale auto-filled value.
-  const name = (!nameManuallyEdited && parsed.name ? parsed.name : (document.getElementById("f_name").value.trim() || parsed.name)).trim();
-  const company = document.getElementById("f_company").value.trim() || parsed.company;
-  const email = document.getElementById("f_email").value.trim() || parsed.email;
-  const phone = document.getElementById("f_phone").value.trim() || parsed.phone;
-  if(!name && !email && !phone){ alert("Enter a name, email, or phone first."); document.getElementById("f_who").focus(); return; }
+  // Manual fields always win, including intentionally clearing them while
+  // editing. Do not silently restore an old address from Who on save.
+  const typedName = document.getElementById("f_name").value.trim();
+  const name = nameManuallyEdited ? typedName : (parsed.name || typedName).trim();
+  const company = companyManuallyEdited ? document.getElementById("f_company").value.trim() : (document.getElementById("f_company").value.trim() || parsed.company);
+  const email = document.getElementById("f_email").value.trim();
+  const phone = document.getElementById("f_phone").value.trim();
+  if(!name && !email && !phone){ alert("Enter a name, email, or phone first."); document.getElementById("f_name").focus(); return; }
   const moreOpen = !document.getElementById("moreDetails").classList.contains("hidden");
   let stage = quickStatusToStage(quickStatus);
   let source = quickChannel;
@@ -760,44 +818,37 @@ async function submitLeadForm(e){
     notes: remark,
     requirement: document.getElementById("f_requirement").value.trim(),
   };
-  data.follow_up_date = autoFollowUp(stage, data.follow_up_date);
   if(editingId){
     const old = leads.find(l => l.id === editingId);
-    let updated = applyAutoHandoff({ ...old, ...data, updated_at: new Date().toISOString() });
+    if(!old){ alert("This lead is no longer available. Refresh and try again."); return; }
+    let updated = applyAutoHandoff({ ...old, ...data, updated_at: new Date().toISOString() }, false);
     if(stage === "New" || stage === "Contacted"){
       updated.handed_over = false; updated.handoff_note = ""; updated.handoff_date = null;
     }
     if(!updated.lead_code) ensureLeadCode(updated);
-    if(!updated.requirement && updated.notes) updated.requirement = updated.notes;
-     // Preserve existing NULLs when edit fields are left blank.
-const nullableInputs = {
-  company: "f_company",
-  email: "f_email",
-  phone: "f_phone",
-  website: "f_website",
-  assignee: "f_assignee",
-  notes: "f_notes",
-  requirement: "f_requirement",
-  follow_up_date: "f_follow"
-};
-
-for (const [field, id] of Object.entries(nullableInputs)) {
-  if (
-    old[field] === null &&
-    document.getElementById(id).value.trim() === ""
-  ) {
-    updated[field] = null;
-  }
-}
-    if(!await saveLeadToBackend(updated)) return;
-    await logActivityToBackend(editingId, source, remark || (source + " contact"));
-    closeModal("leadModal"); setStatus("Lead saved.");
+    // Update ONLY editable fields, not a stale copy of every DB column.
+    // The returned Supabase row confirms an existing lead was updated.
+    const patch = { ...data, requirement: updated.requirement,
+      lead_code: updated.lead_code,
+      handed_over: updated.handed_over,
+      handoff_note: updated.handoff_note,
+      handoff_date: updated.handoff_date };
+    const savedId = editingId;
+    if(!await saveExistingLead(savedId, patch)) return;
+    closeModal("leadModal"); editingId = null;
+    setStatus("Changes saved for " + (name || email || phone) + ".");
     return;
   }
+  data.follow_up_date = autoFollowUp(stage, data.follow_up_date);
   // Duplicate guard: same email (case-insensitive) or same phone (digits only)
   const dup = findDuplicate(email, phone);
   if(dup){
     let updated = { ...dup };
+    // If Quick Add matches an existing lead by email or phone, retain
+    // its current details but fill in contact fields that were missing.
+    if(!updated.email && email) updated.email = email;
+    if(!updated.phone && phone) updated.phone = phone;
+    if(!updated.company && company) updated.company = company;
     if(remark && !(updated.notes || "").includes(remark)) updated.notes = updated.notes ? updated.notes + "; " + remark : remark;
     if(!updated.website && website) updated.website = website;
     if(outcome === "Won" || outcome === "Lost"){ updated.stage = outcome; updated.outcome = outcome; }
@@ -916,6 +967,13 @@ async function init(){
   const nameEl = document.getElementById("f_name"); if(nameEl) nameEl.addEventListener("input", () => { nameManuallyEdited = true; });
   const compEl = document.getElementById("f_company"); if(compEl) compEl.addEventListener("input", () => { companyManuallyEdited = true; });
   const webEl = document.getElementById("f_website"); if(webEl) webEl.addEventListener("input", () => { websiteManuallyEdited = true; });
+  const emailEl = document.getElementById("f_email");
+  if(emailEl) emailEl.addEventListener("input", () => {
+    emailManuallyEdited = true;
+    if(!websiteManuallyEdited && websiteFromEmail(emailEl.value)) webEl.value = websiteFromEmail(emailEl.value);
+  });
+  const phoneEl = document.getElementById("f_phone");
+  if(phoneEl) phoneEl.addEventListener("input", () => { phoneManuallyEdited = true; });
   // Bug fix 2026-10-30: pressing Enter in Who/Name submitted the form
   // immediately, clearing the form before the user had finished — which
   // looked like being kicked back to Dashboard. Enter in a single-line
