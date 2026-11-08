@@ -143,3 +143,11 @@
 #boardView .card-source {
   font-size: 11px;
 }
+
+/* Editing is directly accessible from both Leads and Board. */
+#listView th:nth-child(1) { width: 18%; }
+#listView th:nth-child(2) { width: 22%; }
+#listView th:nth-child(4) { width: 21%; }
+#listView th:nth-child(6) { width: 16%; }
+#listView .row-actions { white-space: nowrap; }
+#boardView .board-edit { width: 100%; margin-top: 7px; padding: 5px 8px; font-size: 11px; }
