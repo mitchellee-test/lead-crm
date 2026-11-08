@@ -65,16 +65,9 @@ function dueLabel(lead){
 let quickChannel = "Email";
 let quickStatus = "Contacted";
 let addedTodayCount = 0;
-// Bug fix 2026-10-30: Who auto-parse used to fill Name only while it was
-// empty, so after the first letter ("A") it froze and never updated to the
-// full name. Track manual edits instead: auto-parse updates Name/Company
-// on every Who keystroke UNLESS the user has typed in that field directly,
-// in which case manual input always wins.
-let nameManuallyEdited = false;
-let companyManuallyEdited = false;
+// "Who" and "Name" are independent, separately persisted lead fields.
+// Typing in Who must NEVER auto-fill or overwrite Name or any other field.
 let websiteManuallyEdited = false;
-let emailManuallyEdited = false;
-let phoneManuallyEdited = false;
 // Website / lead_code / outcome (2026-10-30):
 // - website: visible field, auto-filled from email domain, never overwrites
 //   a manually typed website.
@@ -138,60 +131,6 @@ function displayStage(stage){ return stage === "Won" ? "Done" : stage; }
 function quickStatusToStage(s){ return s === "Done" ? "Won" : s; }
 function stageToQuickStatus(s){ return s === "Won" ? "Done" : (["New","Contacted","Replied","Lost"].includes(s) ? s : "Contacted"); }
 function digitsOnly(v){ return String(v || "").replace(/\D/g, ""); }
-function titleCase(s){ return String(s || "").split(/[\s._-]+/).filter(Boolean).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" "); }
-function parseWho(raw){
-  const text = String(raw || "").trim();
-  if(!text) return { name:"", company:"", email:"", phone:"" };
-  const emailMatch = text.match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/);
-  const email = emailMatch ? emailMatch[0] : "";
-  const phoneMatch = text.match(/\+?\d[\d\s\-()]{6,}\d/);
-  let phone = "";
-  if(!email && phoneMatch && digitsOnly(text).length >= 7 && digitsOnly(text).length >= text.replace(/[\s\-()+]/g,"").length * 0.7) phone = phoneMatch[0].trim();
-  else if(phoneMatch && email) phone = phoneMatch[0].trim();
-  let rest = text;
-  if(email) rest = rest.replace(email, " ");
-  if(phone) rest = rest.replace(phone, " ");
-  rest = rest.replace(/[,;|]+/g, " ").replace(/\s+/g, " ").trim();
-  let name = "", company = "";
-  if(rest){
-    const atParts = rest.split(/\s+at\s+/i);
-    if(atParts.length === 2){ name = atParts[0].trim(); company = atParts[1].trim(); }
-    else if(/inc\.?|ltd\.?|llc|company|co\./i.test(rest) && rest.split(" ").length <= 4){ company = rest; }
-    else name = rest;
-  }
-  if(email && !company){
-    const domain = email.split("@")[1] || "";
-    const first = domain.split(".")[0] || "";
-    if(!["gmail","yahoo","outlook","hotmail","icloud","protonmail","example"].includes(first.toLowerCase())) company = titleCase(first);
-  }
-  if(email && !name){
-    const local = email.split("@")[0] || "";
-    name = titleCase(local);
-  }
-  if(!name && company) name = company;
-  return { name, company, email, phone };
-}
-function updateWhoParsed(){
-  const whoEl = document.getElementById("f_who"); if(!whoEl) return;
-  const p = parseWho(whoEl.value);
-  const nameEl = document.getElementById("f_name"), compEl = document.getElementById("f_company");
-  if(p.name && nameEl && !nameManuallyEdited) nameEl.value = p.name;
-  if(p.company && compEl && !companyManuallyEdited) compEl.value = p.company;
-  // The Who field is a shortcut, never a replacement for explicitly
-  // edited contact details. Existing lead contact values are manual too.
-  const emailEl = document.getElementById("f_email");
-  const phoneEl = document.getElementById("f_phone");
-  if(p.email && emailEl && !emailManuallyEdited) emailEl.value = p.email;
-  if(p.phone && phoneEl && !phoneManuallyEdited) phoneEl.value = p.phone;
-  // Website can also come from an email typed directly into Email.
-  const webEl = document.getElementById("f_website");
-  if(webEl && !websiteManuallyEdited){
-    const auto = websiteFromEmail(emailEl.value);
-    if(auto) webEl.value = auto;
-  }
-  const out = document.getElementById("whoParsed");
-  if(out) out.textContent = (p.name || p.email || p.phone) ? [p.name, p.company, p.email, p.phone].filter(Boolean).join(" · ") : "";
-}
 function selectChannel(ch){
   quickChannel = ch;
   const src = document.getElementById("f_source"); if(src) src.value = ch;
@@ -256,10 +195,16 @@ function applyAutoHandoff(lead, populateRequirement = true){
   }
   return lead;
 }
-function findDuplicate(email, phone){
+function sameIdentity(a, b){
+  // Matching email/phone alone must not silently discard a different Who/Name.
+  const normalize = v => String(v || "").trim().toLocaleLowerCase();
+  return normalize(a.who) === normalize(b.who) && normalize(a.name) === normalize(b.name);
+}
+function findDuplicate(email, phone, identity = null){
   const e = String(email || "").trim().toLowerCase();
   const p = digitsOnly(phone);
   return leads.find(l => {
+    if(identity && !sameIdentity(l, identity)) return false;
     if(e && String(l.email || "").trim().toLowerCase() === e) return true;
     if(p){
       const lp = digitsOnly(l.phone);
@@ -517,7 +462,7 @@ function getFiltered(){
     if(stage && l.stage !== stage) return false;
     if(source && l.source !== source) return false;
 
-    if(q && !((l.name+" "+l.company+" "+l.email+" "+l.phone+" "+(l.website||"")+" "+(l.lead_code||"")+" "+(l.outcome||"")).toLowerCase().includes(q))) return false;
+    if(q && !(((l.name||"")+" "+(l.who||"")+" "+(l.company||"")+" "+(l.email||"")+" "+(l.phone||"")+" "+(l.website||"")+" "+(l.lead_code||"")+" "+(l.outcome||"")).toLowerCase().includes(q))) return false;
     return true;
   });
 }
@@ -596,7 +541,7 @@ function leadRow(l){
   const remark = (l.notes || "").length > 55 ? (l.notes || "").slice(0, 55) + "…" : (l.notes || "—");
   const contact = [l.email, l.phone].filter(Boolean);
   return `<tr>
-    <td><div class="lead-name">${esc(l.name)}</div><div class="lead-sub"><span class="lead-code">${esc(displayLeadCode(l))}</span>${l.company ? " · " + esc(l.company) : ""}</div></td>
+    <td><div class="lead-name">${esc(l.name || "(No name)")}</div><div class="lead-sub"><span class="lead-code">${esc(displayLeadCode(l))}</span>${l.company ? " · " + esc(l.company) : ""}</div><div class="lead-sub">Who: ${esc(l.who || "—")}</div></td>
     <td class="contact-cell">${contact.map(c => `<div>${esc(c)}</div>`).join("") || "—"}${l.website ? `<a class="website-link" href="${esc(l.website)}" target="_blank" rel="noopener">${esc(websiteDisplay(l.website))}</a>` : ""}</td>
     <td>${last ? esc(last.channel) : esc(l.source || "—")}</td>
     <td class="remark-cell" title="${esc(l.notes || "")}">${esc(remark)}</td>
@@ -622,8 +567,9 @@ function renderBoard(){
       (items.map(l => {
         const remark = (l.notes || "").length > 75 ? l.notes.slice(0,75) + "…" : (l.notes || "");
         return `<div class="leadcard" onclick="openDetail('${esc(l.id)}')">
-          <div class="card-lead-name">${esc(l.name)}</div>
+          <div class="card-lead-name">${esc(l.name || "(No name)")}</div>
           <div class="card-meta"><span class="lead-code">${esc(displayLeadCode(l))}</span>${l.company ? " · " + esc(l.company) : ""}</div>
+          <div class="card-meta">Who: ${esc(l.who || "—")}</div>
           ${remark ? `<div class="card-remark" title="${esc(l.notes || "")}">${esc(remark)}</div>` : ""}
           <div class="card-foot">${stageSelect(l,"board-stage")}<span class="card-source">${esc(l.source || "—")}</span></div>
           <button type="button" class="btn small secondary board-edit" onclick="event.stopPropagation(); openEditLead('${esc(l.id)}')">Edit details</button>
@@ -683,8 +629,6 @@ function saveQuickDraft(){
   try{
     const d = {};
     ["f_who","f_name","f_company","f_email","f_phone","f_website","f_notes","f_requirement"].forEach(id => { const el = document.getElementById(id); if(el) d[id] = el.value; });
-    d.emailManuallyEdited = emailManuallyEdited;
-    d.phoneManuallyEdited = phoneManuallyEdited;
     d.quickChannel = quickChannel; d.quickStatus = quickStatus;
     d.fullStage = document.getElementById("f_status_full").value;
     const outEl = document.getElementById("f_outcome"); if(outEl) d.f_outcome = outEl.value;
@@ -700,12 +644,7 @@ function restoreQuickDraft(){
     if(d.quickChannel) selectChannel(d.quickChannel);
     if(d.quickStatus) selectQuickStatus(d.quickStatus);
     if(d.fullStage) selectFullStatus(d.fullStage);
-    if(d.f_name) nameManuallyEdited = true;
-    if(d.f_company) companyManuallyEdited = true;
     if(d.f_website) websiteManuallyEdited = true;
-    emailManuallyEdited = Boolean(d.emailManuallyEdited);
-    phoneManuallyEdited = Boolean(d.phoneManuallyEdited);
-    updateWhoParsed();
     return true;
   }catch(e){ return false; }
 }
@@ -717,12 +656,10 @@ function cancelLeadForm(){
 }
 function resetQuickForm(){
   quickChannel = "Email"; quickStatus = "Contacted";
-  nameManuallyEdited = false; companyManuallyEdited = false; websiteManuallyEdited = false;
-  emailManuallyEdited = false; phoneManuallyEdited = false;
+  websiteManuallyEdited = false;
   document.getElementById("f_who").value = "";
   ["f_name","f_company","f_website","f_email","f_phone","f_assignee","f_follow","f_notes","f_requirement"].forEach(id => { const el = document.getElementById(id); if(el) el.value = ""; });
   const outEl = document.getElementById("f_outcome"); if(outEl) outEl.value = "";
-  document.getElementById("whoParsed").textContent = "";
   document.getElementById("moreDetails").classList.add("hidden");
   document.getElementById("moreDetailsBtn").textContent = "More details";
   selectChannel("Email"); selectQuickStatus("Contacted");
@@ -743,7 +680,9 @@ function openAddLead(){
   document.getElementById("deleteLeadBtn").classList.add("hidden");
   updateAddedToday();
   openModal("leadModal");
-  setTimeout(() => document.getElementById("f_who").focus(), 50);
+  // Focus immediately: a delayed focus timer could steal focus from Name
+  // or Email while someone was already typing, mixing up input values.
+  document.getElementById("f_who").focus();
 }
 function openEditLead(id){
   // Accept a lead ID from the Leads table or Board; the detail dialog
@@ -754,7 +693,7 @@ function openEditLead(id){
   resetQuickForm();
   document.getElementById("leadFormTitle").textContent = "Edit lead";
   document.getElementById("saveLeadBtn").textContent = "Save changes";
-  document.getElementById("f_who").value = l.name || l.email || l.phone || "";
+  document.getElementById("f_who").value = l.who || "";
   document.getElementById("f_name").value = l.name || "";
   document.getElementById("f_company").value = l.company || "";
   document.getElementById("f_website").value = l.website || "";
@@ -768,30 +707,24 @@ function openEditLead(id){
   document.getElementById("f_notes").value = l.notes || "";
   document.getElementById("f_requirement").value = l.requirement || "";
   document.getElementById("quickSaved").classList.add("hidden");
-  // Editing: loaded values are the user's/manual values, so Who must not
-  // overwrite them while typing in Who.
-  nameManuallyEdited = true; companyManuallyEdited = true; websiteManuallyEdited = true;
-  emailManuallyEdited = true; phoneManuallyEdited = true;
+  // Editing the Who field never changes the Name or other lead fields.
+  websiteManuallyEdited = true;
   selectChannel(l.source || "Email"); selectQuickStatus(stageToQuickStatus(l.stage || "New"));
   const full = document.getElementById("f_status_full"); if(full) full.value = l.stage || "New";
   if(outEl) outEl.value = outcomeFromLead(l);
-  updateWhoParsed();
   document.getElementById("deleteLeadBtn").classList.remove("hidden");
   closeModal("detailModal"); openModal("leadModal");
   document.getElementById("f_name").focus();
 }
 async function submitLeadForm(e){
   e.preventDefault();
-  updateWhoParsed();
-  const parsed = parseWho(document.getElementById("f_who").value);
-  // Manual fields always win, including intentionally clearing them while
-  // editing. Do not silently restore an old address from Who on save.
-  const typedName = document.getElementById("f_name").value.trim();
-  const name = nameManuallyEdited ? typedName : (parsed.name || typedName).trim();
-  const company = companyManuallyEdited ? document.getElementById("f_company").value.trim() : (document.getElementById("f_company").value.trim() || parsed.company);
+  // No parsing or fallbacks between Who and Name: save exactly what was typed.
+  const who = document.getElementById("f_who").value.trim();
+  const name = document.getElementById("f_name").value.trim();
+  const company = document.getElementById("f_company").value.trim();
   const email = document.getElementById("f_email").value.trim();
   const phone = document.getElementById("f_phone").value.trim();
-  if(!name && !email && !phone){ alert("Enter a name, email, or phone first."); document.getElementById("f_name").focus(); return; }
+  if(!who && !name && !email && !phone){ alert("Enter Who, Name, email, or phone first."); document.getElementById("f_who").focus(); return; }
   const moreOpen = !document.getElementById("moreDetails").classList.contains("hidden");
   let stage = quickStatusToStage(quickStatus);
   let source = quickChannel;
@@ -811,7 +744,7 @@ async function submitLeadForm(e){
   const remark = document.getElementById("f_notes").value.trim();
   const website = normalizeWebsite(document.getElementById("f_website").value.trim() || websiteFromEmail(email));
   let data = {
-    name: name || email || phone, company, email, phone, website, source, stage,
+    who, name, company, email, phone, website, source, stage,
     outcome,
     assignee: document.getElementById("f_assignee").value.trim(),
     follow_up_date: document.getElementById("f_follow").value || null,
@@ -836,14 +769,16 @@ async function submitLeadForm(e){
     const savedId = editingId;
     if(!await saveExistingLead(savedId, patch)) return;
     closeModal("leadModal"); editingId = null;
-    setStatus("Changes saved for " + (name || email || phone) + ".");
+    setStatus("Changes saved for " + (name || who || email || phone) + ".");
     return;
   }
   data.follow_up_date = autoFollowUp(stage, data.follow_up_date);
-  // Duplicate guard: same email (case-insensitive) or same phone (digits only)
-  const dup = findDuplicate(email, phone);
+  // Duplicate guard: same contact AND same Who and Name.
+  // A different Who/Name combination is always a separate record.
+  const dup = findDuplicate(email, phone, data);
   if(dup){
-    let updated = { ...dup };
+    let updated = { ...dup, who, name };
+    // Save the exact Who and Name text even if this is a repeat contact.
     // If Quick Add matches an existing lead by email or phone, retain
     // its current details but fill in contact fields that were missing.
     if(!updated.email && email) updated.email = email;
@@ -866,14 +801,28 @@ async function submitLeadForm(e){
     updateAddedToday(); document.getElementById("f_who").focus();
     return;
   }
-  let lead = applyAutoHandoff({ ...data, lead_code: nextLeadCode(company, name || email || phone), handed_over:false, handoff_note:"", handoff_date:null });
+  let lead = applyAutoHandoff({ ...data, lead_code: nextLeadCode(company, name || who || email || phone), handed_over:false, handoff_note:"", handoff_date:null });
   if(lead.handed_over){ lead.handoff_note = remark; lead.handoff_date = new Date().toISOString(); if(!lead.requirement) lead.requirement = remark; }
   let savedId = null;
   if(mode === "supabase"){
-    if(!await saveLeadToBackend(lead)) return;
-    // saveLeadToBackend reloads from Supabase; find the just-saved lead by email/phone
-    const found = findDuplicate(email, phone);
-    savedId = found ? found.id : null;
+    // Insert and return the actual new row ID. Looking up by email/phone
+    // could assign the activity to someone else who shares contact details.
+    activeWrites++; dataEpoch++;
+    let inserted = null;
+    try{
+      const { data: row, error } = await supabaseClient.from("leads").insert(lead).select("id").single();
+      if(error) throw error;
+      if(!row || !row.id) throw new Error("Supabase did not confirm the new lead.");
+      inserted = row.id;
+    }catch(error){
+      setStatus("Could not save lead: " + error.message);
+      alert("Could not save to Supabase: " + error.message);
+    }finally{
+      activeWrites--;
+      if(!activeWrites) await loadFromSupabase();
+    }
+    if(!inserted) return;
+    savedId = inserted;
   } else {
     lead = { id:"demo-" + Date.now(), ...lead, created_at:new Date().toISOString(), updated_at:new Date().toISOString() };
     leads.unshift(lead); saveDemo(); renderAll(); savedId = lead.id;
@@ -881,7 +830,7 @@ async function submitLeadForm(e){
   if(savedId) await logActivityToBackend(savedId, source, remark || (source + " contact"));
   addedTodayCount++;
   // Stay in the modal for the next lead: clear, show Saved, focus Who.
-  const savedName = name;
+  const savedName = name || who || email || phone;
   clearQuickDraft(); resetQuickForm();
   const savedEl = document.getElementById("quickSaved");
   savedEl.textContent = "Saved: " + savedName + " — add another below.";
@@ -900,7 +849,8 @@ function openDetail(id){
   detailId = id;
   const acts = activities.filter(a => a.lead_id === id).slice(0,50);
   document.getElementById("detailBody").innerHTML = `
-    <p><b><span class="lead-code">${esc(displayLeadCode(l))}</span> · ${esc(l.name)}</b> ${stagePill(l.stage)} · ${esc(l.source)}</p>
+    <p><b><span class="lead-code">${esc(displayLeadCode(l))}</span> · ${esc(l.name || "(No name)")}</b> ${stagePill(l.stage)} · ${esc(l.source)}</p>
+    <p><b>Who:</b> ${esc(l.who || "—")} · <b>Name:</b> ${esc(l.name || "—")}</p>
     <p class="muted">${esc(l.company)} · ${esc(l.email)} · ${esc(l.phone)}</p>
     ${l.website ? `<p><b>Website:</b> <a class="website-link" href="${esc(l.website)}" target="_blank" rel="noopener">${esc(websiteDisplay(l.website))}</a></p>` : ""}
     <p><b>Assignee:</b> ${esc(l.assignee || "Unassigned")} · <b>Follow-up:</b> <span class="due ${dueClass(l)}">${esc(dueLabel(l))}</span></p>
@@ -963,17 +913,11 @@ async function init(){
   document.getElementById("filterSource").addEventListener("change", renderAll);
 
   document.getElementById("leadForm").addEventListener("submit", submitLeadForm);
-  const whoEl = document.getElementById("f_who"); if(whoEl) whoEl.addEventListener("input", updateWhoParsed);
-  const nameEl = document.getElementById("f_name"); if(nameEl) nameEl.addEventListener("input", () => { nameManuallyEdited = true; });
-  const compEl = document.getElementById("f_company"); if(compEl) compEl.addEventListener("input", () => { companyManuallyEdited = true; });
   const webEl = document.getElementById("f_website"); if(webEl) webEl.addEventListener("input", () => { websiteManuallyEdited = true; });
   const emailEl = document.getElementById("f_email");
   if(emailEl) emailEl.addEventListener("input", () => {
-    emailManuallyEdited = true;
     if(!websiteManuallyEdited && websiteFromEmail(emailEl.value)) webEl.value = websiteFromEmail(emailEl.value);
   });
-  const phoneEl = document.getElementById("f_phone");
-  if(phoneEl) phoneEl.addEventListener("input", () => { phoneManuallyEdited = true; });
   // Bug fix 2026-10-30: pressing Enter in Who/Name submitted the form
   // immediately, clearing the form before the user had finished — which
   // looked like being kicked back to Dashboard. Enter in a single-line
