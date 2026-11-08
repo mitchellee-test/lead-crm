@@ -83,9 +83,12 @@
         <div class="field"><label>Name</label><input id="f_name" placeholder="Full name"></div>
         <div class="field"><label>Company</label><input id="f_company" placeholder="Company"></div>
       </div>
-      <div class="field"><label>Website</label><input id="f_website" placeholder="https://example.com — auto-filled from email, you can edit it"></div>
-      <input id="f_email" type="hidden">
-      <input id="f_phone" type="hidden">
+      <div class="fieldgrid">
+        <div class="field"><label for="f_email">Email</label><input id="f_email" type="email" placeholder="name@example.com" autocomplete="email"></div>
+        <div class="field"><label for="f_phone">Phone / WhatsApp</label><input id="f_phone" type="tel" placeholder="+880 1XXX XXXXXX" autocomplete="tel"></div>
+      </div>
+      <div class="field"><label for="f_website">Website</label><input id="f_website" placeholder="https://example.com — auto-filled from email, you can edit it"></div>
+      <p class="muted">Email and phone are optional. Add either or both now, or update them later using Edit.</p>
     </div>
     <div class="quick-step">
       <label>2 · Channel — first contact</label>
@@ -139,7 +142,7 @@
     <div class="modal-actions">
       <button type="button" class="btn secondary" id="deleteLeadBtn" onclick="deleteCurrentLead()">Delete lead</button>
       <button type="button" class="btn secondary" onclick="cancelLeadForm()">Cancel</button>
-      <button type="submit" class="btn">Save lead</button>
+      <button type="submit" class="btn" id="saveLeadBtn">Save lead</button>
     </div>
   </form>
 </div></div>
