@@ -43,7 +43,7 @@
     <h1>All leads</h1>
     <p id="listCount" class="view-description" aria-live="polite"></p>
     <div class="toolbar">
-      <input id="searchInput" type="search" placeholder="Search name, company, email or phone…">
+      <input id="searchInput" type="search" placeholder="Search Who, Name, company, email or phone…">
       <select id="filterStage"></select>
       <select id="filterSource"></select>
      
@@ -76,11 +76,11 @@
   <div id="quickSaved" class="saved-banner hidden"></div>
   <form id="leadForm">
     <div class="quick-step">
-      <label>1 · Who</label>
-      <input id="f_who" placeholder="Paste name, company, email, or phone…" autocomplete="off">
-      <p class="muted" id="whoParsed"></p>
+      <label for="f_who">1 · Who</label>
+      <input id="f_who" placeholder="Who is this lead from? Enter any text" autocomplete="off">
+      <p class="muted">Who and Name are separate fields. Enter any value in either one; they will not overwrite each other.</p>
       <div class="fieldgrid">
-        <div class="field"><label>Name</label><input id="f_name" placeholder="Full name"></div>
+        <div class="field"><label for="f_name">Name</label><input id="f_name" placeholder="Any name (independent from Who)"></div>
         <div class="field"><label>Company</label><input id="f_company" placeholder="Company"></div>
       </div>
       <div class="fieldgrid">
